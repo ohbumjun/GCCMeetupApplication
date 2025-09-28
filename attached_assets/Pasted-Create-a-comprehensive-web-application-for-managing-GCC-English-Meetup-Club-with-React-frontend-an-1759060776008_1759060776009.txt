@@ -1,0 +1,175 @@
+Create a comprehensive web application for managing "GCC English Meetup Club" with React frontend and Java Spring Boot backend using MySQL database.
+
+=== CORE ARCHITECTURE ===
+- Frontend: React 18+ with Material-UI or Bootstrap for responsive design
+- Backend: Java Spring Boot 3.x with JPA/Hibernate
+- Database: MySQL 8+ with proper table relationships
+- Authentication: JWT-based with role-based access (USER, ADMIN)
+- File Upload: Support for image uploads (member suggestions)
+
+=== DATABASE SCHEMA REQUIREMENTS ===
+
+1. Users Table:
+   - id (Primary Key), username, password (encrypted)
+   - korean_name, english_name, phone_number (admin-only visible)
+   - industry (ENUM: FINANCE, IT, MANUFACTURING, HEALTHCARE, EDUCATION, CONSULTING, OTHER)
+   - linkedin_url, website_url, email
+   - membership_level (ENUM: HONOR_IV, HONOR_III, HONOR_II, HONOR_I)
+   - status (ENUM: ACTIVE, INACTIVE), inactive_reason
+   - last_attendance_date, consecutive_absences, attendance_rate
+   - created_date, updated_date
+   - role (ENUM: USER, ADMIN)
+
+2. Votes Table:
+   - id, title, description, vote_date, deadline_date
+   - created_by_admin_id, status (ACTIVE, CLOSED)
+   - created_date
+
+3. Vote_Responses Table:
+   - id, vote_id, user_id, response (PRESENT, ABSENT)
+   - submitted_date
+
+4. Attendance_Records Table:
+   - id, user_id, meeting_date
+   - status (PRESENT, ABSENT, LATE, NO_SHOW)
+   - updated_by_admin_id, notes
+
+5. Room_Assignments Table:
+   - id, meeting_date, room_number, room_name
+   - assigned_members (JSON array of user_ids)
+   - created_by_admin_id
+
+6. Meeting_Topics Table:
+   - id, meeting_date, topic_title, description
+   - created_by_admin_id
+
+7. Suggestions Table:
+   - id, user_id, title, content, image_url
+   - status (PENDING, REVIEWED), created_date
+
+=== DETAILED FEATURE SPECIFICATIONS ===
+
+1. AUTHENTICATION & USER MANAGEMENT:
+   - Admin-only registration: Generate 8-character random alphanumeric password
+   - Display generated password to admin immediately after creation
+   - Force password change on first login with validation (min 8 chars, special chars)
+   - Admin can view all initial passwords in a secure admin panel
+   - Session management with auto-logout after 24 hours
+
+2. MEMBER PROFILE MANAGEMENT:
+   - Self-editable fields: korean_name, english_name, industry, profile links
+   - Admin-only fields: membership_level, status, phone_number, attendance data
+   - Profile validation: email format, URL format for links
+   - Attendance history calendar view showing color-coded status per date
+   - Calculate attendance_rate as (present_days / total_meeting_days) * 100
+
+3. VOTING SYSTEM:
+   - Admin creates weekly vote with title, description, deadline
+   - Real-time vote count display with live updates
+   - Vote history page showing past 12 weeks of votes
+   - Notification system: Send SMS reminder 2 hours before deadline (if phone provided)
+   - Voting closes automatically at deadline; late votes rejected
+
+4. SMART ROOM ASSIGNMENT ALGORITHM:
+   - Input: List of "PRESENT" voters, room configuration (e.g., "3 rooms of 5 people, 2 rooms of 6 people")
+   - Constraint: Check last 2 weeks of room assignments, ensure no member repeats with same roommates for 3+ consecutive weeks
+   - Algorithm: Random assignment with constraint checking, retry up to 10 times if constraints fail
+   - Manual override: Drag-and-drop interface or +/- buttons to move members between rooms
+   - Real-time validation: Alert if any member unassigned or assigned to multiple rooms
+   - Export room assignments as PDF or send via email
+
+5. ADMIN DASHBOARD:
+   - Statistics cards: Total active members, this week's attendance rate, consecutive absent members (3+)
+   - Quick actions: Create vote, mark attendance, generate room assignment
+   - Member management table with search, filter, and bulk actions
+   - Attendance tracking: Mark members as LATE or NO_SHOW on meeting day
+   - Industry management: Add/edit/delete industry options in dropdown
+
+6. USER INTERFACE PAGES:
+
+   Main Page:
+   - Latest announcement banner
+   - This week's meeting info (date, time, topic)
+   - Quick vote status if active
+   - Recent activity feed
+
+   My Page:
+   - Profile edit form with validation
+   - Personal attendance statistics with charts
+   - Calendar view of personal attendance history
+   - Password change functionality
+
+   Voting Page:
+   - Current active vote with countdown timer
+   - Vote submission with confirmation modal
+   - Real-time results (show after user votes)
+   - Historical votes with expandable details
+
+   Attendance Overview:
+   - Week-by-week attendance list with member names
+   - Filter by date range, status, membership level
+   - Export functionality (CSV, PDF)
+
+   Levels Page:
+   - Member list grouped by Honor levels
+   - Progress indicators for level advancement
+   - Level requirements explanation
+
+   Ranking Page:
+   - Sortable table by attendance rate, consecutive attendance, total meetings
+   - Medal icons for top 3 performers
+   - Monthly/quarterly ranking history
+
+   Topics Archive:
+   - Chronological list of past meeting topics
+   - Search functionality by keyword or date
+   - Admin can add/edit topics with rich text editor
+
+   Social Events:
+   - Separate event calendar for social gatherings
+   - RSVP functionality independent of regular meetings
+   - Photo gallery from past events
+
+   Suggestions Page:
+   - Form for members to submit improvement ideas
+   - Image upload with preview (max 5MB, JPG/PNG only)
+   - Admin response system with status updates
+   - Voting on suggestions by other members
+
+   FAQ Page:
+   - Categorized frequently asked questions
+   - Search functionality
+   - Admin can add/edit FAQ items
+
+7. RESPONSIVE DESIGN REQUIREMENTS:
+   - Mobile-first approach with breakpoints: 320px, 768px, 1024px, 1200px
+   - Touch-friendly buttons and inputs on mobile
+   - Collapsible navigation menu
+   - Optimized table display for mobile (card layout)
+   - Fast loading with lazy loading for images
+
+8. SECURITY & VALIDATION:
+   - Input sanitization for all forms
+   - CSRF protection
+   - Rate limiting for API endpoints
+   - SQL injection prevention with parameterized queries
+   - File upload security: virus scanning, file type validation
+   - Admin action logging for audit trail
+
+9. API ENDPOINTS STRUCTURE:
+   - RESTful API design with proper HTTP methods
+   - Consistent response format with status, message, data
+   - Error handling with appropriate status codes
+   - Pagination for large datasets
+   - API documentation with Swagger
+
+Generate complete project structure with:
+- Properly organized React components with hooks
+- Spring Boot controllers, services, repositories
+- Database migration scripts
+- Configuration files for development/production
+- Docker configuration for easy deployment
+- Basic unit tests for critical functions
+- README with setup instructions
+
+Make it production-ready but easily customizable for future enhancements.
