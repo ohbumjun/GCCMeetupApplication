@@ -1,12 +1,36 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { setupAuth } from "./auth";
+import { setupAuth, hashPassword } from "./auth";
 import { storage } from "./storage";
 import { insertVoteSchema, insertVoteResponseSchema, insertAttendanceRecordSchema, insertRoomAssignmentSchema, insertMeetingTopicSchema, insertSuggestionSchema } from "@shared/schema";
 import { z } from "zod";
 
 export function registerRoutes(app: Express): Server {
   setupAuth(app);
+
+  // Development only: Create first admin user
+  app.post("/api/create-admin", async (req, res, next) => {
+    try {
+      if (process.env.NODE_ENV !== "development") {
+        return res.status(403).json({ message: "Only available in development" });
+      }
+      
+      const existingUser = await storage.getUserByUsername(req.body.username);
+      if (existingUser) {
+        return res.status(400).json({ message: "Username already exists" });
+      }
+
+      const user = await storage.createUser({
+        ...req.body,
+        role: "ADMIN",
+        password: await hashPassword(req.body.password),
+      });
+
+      res.status(201).json(user);
+    } catch (error) {
+      next(error);
+    }
+  });
 
   // Middleware to check if user is authenticated
   const requireAuth = (req: any, res: any, next: any) => {
