@@ -74,7 +74,7 @@ export function registerRoutes(app: Express): Server {
       const randomPassword = Math.random().toString(36).slice(-8);
       const userData = {
         ...req.body,
-        password: randomPassword,
+        password: await hashPassword(randomPassword),
         mustChangePassword: true,
       };
       
@@ -137,8 +137,15 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/votes", requireAdmin, async (req, res, next) => {
     try {
-      const voteData = insertVoteSchema.parse({
+      // Convert ISO date strings to Date objects
+      const processedBody = {
         ...req.body,
+        voteDate: new Date(req.body.voteDate),
+        deadlineDate: new Date(req.body.deadlineDate),
+      };
+      
+      const voteData = insertVoteSchema.parse({
+        ...processedBody,
         createdByAdminId: req.user!.id,
       });
       
