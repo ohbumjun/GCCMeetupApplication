@@ -202,8 +202,14 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/attendance", requireAdmin, async (req, res, next) => {
     try {
-      const attendanceData = insertAttendanceRecordSchema.parse({
+      // Convert ISO date string to Date object
+      const processedBody = {
         ...req.body,
+        meetingDate: new Date(req.body.meetingDate),
+      };
+      
+      const attendanceData = insertAttendanceRecordSchema.parse({
+        ...processedBody,
         updatedByAdminId: req.user!.id,
       });
       
@@ -232,6 +238,15 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Room assignments
+  app.get("/api/room-assignments/history", requireAuth, async (req, res, next) => {
+    try {
+      const history = await storage.getRoomAssignmentHistory();
+      res.json(history);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/api/room-assignments/:date", requireAuth, async (req, res, next) => {
     try {
       const date = new Date(req.params.date);
@@ -244,8 +259,14 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/room-assignments", requireAdmin, async (req, res, next) => {
     try {
-      const assignmentData = insertRoomAssignmentSchema.parse({
+      // Convert ISO date string to Date object
+      const processedBody = {
         ...req.body,
+        meetingDate: new Date(req.body.meetingDate),
+      };
+      
+      const assignmentData = insertRoomAssignmentSchema.parse({
+        ...processedBody,
         createdByAdminId: req.user!.id,
       });
       
@@ -256,14 +277,6 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.get("/api/room-assignments/history", requireAuth, async (req, res, next) => {
-    try {
-      const history = await storage.getRoomAssignmentHistory();
-      res.json(history);
-    } catch (error) {
-      next(error);
-    }
-  });
 
   // Meeting topics
   app.get("/api/topics", requireAuth, async (req, res, next) => {

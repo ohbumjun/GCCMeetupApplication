@@ -7,7 +7,7 @@ import {
   type MeetingTopic, type InsertMeetingTopic, type Suggestion, type InsertSuggestion
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, gte, lte, sql, count } from "drizzle-orm";
+import { eq, desc, and, gte, lte, sql, count, isNotNull } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
@@ -186,13 +186,27 @@ export class DatabaseStorage implements IStorage {
     return newRecord;
   }
 
-  async getAttendanceByDate(date: Date): Promise<AttendanceRecord[]> {
+  async getAttendanceByDate(date: Date): Promise<any[]> {
     const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
     const endOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
     
     return await db
-      .select()
+      .select({
+        id: attendanceRecords.id,
+        userId: attendanceRecords.userId,
+        meetingDate: attendanceRecords.meetingDate,
+        status: attendanceRecords.status,
+        notes: attendanceRecords.notes,
+        updatedByAdminId: attendanceRecords.updatedByAdminId,
+        createdDate: attendanceRecords.createdDate,
+        user: {
+          username: users.username,
+          englishName: users.englishName,
+          koreanName: users.koreanName,
+        }
+      })
       .from(attendanceRecords)
+      .leftJoin(users, eq(attendanceRecords.userId, users.id))
       .where(and(
         gte(attendanceRecords.meetingDate, startOfDay),
         lte(attendanceRecords.meetingDate, endOfDay)
@@ -248,11 +262,27 @@ export class DatabaseStorage implements IStorage {
       ));
   }
 
-  async getRoomAssignmentHistory(): Promise<RoomAssignment[]> {
-    return await db
-      .select()
-      .from(roomAssignments)
-      .orderBy(desc(roomAssignments.meetingDate));
+  async getRoomAssignmentHistory(): Promise<any[]> {
+    try {
+      const result = await db.execute(sql`
+        SELECT 
+          id, 
+          meeting_date, 
+          room_number as "roomNumber", 
+          room_name as "roomName", 
+          assigned_members as "assignedMembers", 
+          created_date, 
+          created_by_admin_id as "createdByAdminId"
+        FROM room_assignments 
+        WHERE meeting_date IS NOT NULL
+        ORDER BY meeting_date DESC
+      `);
+      
+      return result.rows;
+    } catch (error) {
+      console.error('Error in getRoomAssignmentHistory:', error);
+      return [];
+    }
   }
 
   async createMeetingTopic(topic: InsertMeetingTopic): Promise<MeetingTopic> {
