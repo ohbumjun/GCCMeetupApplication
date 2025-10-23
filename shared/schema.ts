@@ -43,6 +43,13 @@ export const warningTypeEnum = pgEnum("warning_type", [
   "OTHER"
 ]);
 
+export const presenterStatusEnum = pgEnum("presenter_status", [
+  "NOT_SUBMITTED",
+  "TOPIC_SUBMITTED",
+  "MATERIAL_SUBMITTED",
+  "LATE_SUBMISSION"
+]);
+
 // Tables
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -58,6 +65,8 @@ export const users = pgTable("users", {
   membershipLevel: membershipLevelEnum("membership_level").default("HONOR_I"),
   status: statusEnum("status").default("ACTIVE"),
   inactiveReason: text("inactive_reason"),
+  isLead: boolean("is_lead").default(false),
+  isSubLead: boolean("is_sub_lead").default(false),
   lastAttendanceDate: timestamp("last_attendance_date"),
   consecutiveAbsences: integer("consecutive_absences").default(0),
   attendanceRate: decimal("attendance_rate", { precision: 5, scale: 2 }).default("0.00"),
@@ -92,6 +101,7 @@ export const attendanceRecords = pgTable("attendance_records", {
   userId: varchar("user_id").references(() => users.id).notNull(),
   meetingDate: timestamp("meeting_date").notNull(),
   status: attendanceStatusEnum("status").notNull(),
+  arrivalTime: timestamp("arrival_time"),
   updatedByAdminId: varchar("updated_by_admin_id").references(() => users.id),
   notes: text("notes"),
   createdDate: timestamp("created_date").defaultNow(),
@@ -162,6 +172,22 @@ export const warnings = pgTable("warnings", {
   createdDate: timestamp("created_date").defaultNow(),
 });
 
+export const presenters = pgTable("presenters", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  meetingDate: timestamp("meeting_date").notNull(),
+  topicTitle: text("topic_title"),
+  topicDeadline: timestamp("topic_deadline").notNull(),
+  materialDeadline: timestamp("material_deadline").notNull(),
+  submissionStatus: presenterStatusEnum("submission_status").default("NOT_SUBMITTED"),
+  topicSubmittedDate: timestamp("topic_submitted_date"),
+  materialSubmittedDate: timestamp("material_submitted_date"),
+  penaltyApplied: boolean("penalty_applied").default(false),
+  penaltyAmount: decimal("penalty_amount", { precision: 10, scale: 2 }).default("0.00"),
+  assignedByAdminId: varchar("assigned_by_admin_id").references(() => users.id),
+  createdDate: timestamp("created_date").defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ one, many }) => ({
   voteResponses: many(voteResponses),
@@ -174,6 +200,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   financialAccount: one(financialAccounts),
   financialTransactions: many(financialTransactions),
   warnings: many(warnings),
+  presenterAssignments: many(presenters),
 }));
 
 export const votesRelations = relations(votes, ({ one, many }) => ({
@@ -269,6 +296,17 @@ export const warningsRelations = relations(warnings, ({ one }) => ({
   }),
 }));
 
+export const presentersRelations = relations(presenters, ({ one }) => ({
+  user: one(users, {
+    fields: [presenters.userId],
+    references: [users.id],
+  }),
+  assignedByAdmin: one(users, {
+    fields: [presenters.assignedByAdminId],
+    references: [users.id],
+  }),
+}));
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -323,6 +361,13 @@ export const insertWarningSchema = createInsertSchema(warnings).omit({
   resolvedDate: true,
 });
 
+export const insertPresenterSchema = createInsertSchema(presenters).omit({
+  id: true,
+  createdDate: true,
+  topicSubmittedDate: true,
+  materialSubmittedDate: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -344,3 +389,5 @@ export type FinancialTransaction = typeof financialTransactions.$inferSelect;
 export type InsertFinancialTransaction = z.infer<typeof insertFinancialTransactionSchema>;
 export type Warning = typeof warnings.$inferSelect;
 export type InsertWarning = z.infer<typeof insertWarningSchema>;
+export type Presenter = typeof presenters.$inferSelect;
+export type InsertPresenter = z.infer<typeof insertPresenterSchema>;
