@@ -346,6 +346,99 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Financial management
+  app.get("/api/financial/account/:userId", requireAuth, async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      
+      if (req.user!.role !== "ADMIN" && req.user!.id !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const account = await storage.getFinancialAccount(userId);
+      if (!account) {
+        const newAccount = await storage.getOrCreateFinancialAccount(userId);
+        return res.json(newAccount);
+      }
+      
+      res.json(account);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/financial/accounts", requireAdmin, async (req, res, next) => {
+    try {
+      const accounts = await storage.getAllFinancialAccounts();
+      res.json(accounts);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/financial/transactions/:userId", requireAuth, async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      
+      if (req.user!.role !== "ADMIN" && req.user!.id !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const transactions = await storage.getTransactionHistory(userId);
+      res.json(transactions);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/financial/deposit", requireAdmin, async (req, res, next) => {
+    try {
+      const { userId, amount, description } = req.body;
+      
+      const transaction = await storage.updateDepositBalance(
+        userId,
+        parseFloat(amount),
+        description || "Deposit",
+        req.user!.id
+      );
+
+      res.status(201).json(transaction);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/financial/deduct", requireAdmin, async (req, res, next) => {
+    try {
+      const { userId, amount, transactionType, description, relatedAttendanceId } = req.body;
+      
+      const transaction = await storage.deductFromBalance(
+        userId,
+        parseFloat(amount),
+        transactionType,
+        description || "Deduction",
+        req.user!.id,
+        relatedAttendanceId
+      );
+
+      res.status(201).json(transaction);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/financial/annual-fee/:userId", requireAdmin, async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      const { paid } = req.body;
+      
+      await storage.updateAnnualFee(userId, paid);
+      res.json({ message: "Annual fee status updated" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
