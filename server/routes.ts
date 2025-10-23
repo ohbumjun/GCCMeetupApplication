@@ -246,14 +246,22 @@ export function registerRoutes(app: Express): Server {
       // Deduct late fee if LATE status
       if (attendanceData.status === "LATE") {
         try {
-          await storage.deductFromBalance(
-            attendanceData.userId,
-            5000,
-            "LATE_FEE",
-            `Late fee for ${new Date(attendanceData.meetingDate).toLocaleDateString()}`,
-            req.user!.id,
-            record.id
-          );
+          let lateFee = 5000;
+          
+          if (attendanceData.arrivalTime) {
+            lateFee = storage.calculateLateFee(new Date(attendanceData.arrivalTime));
+          }
+          
+          if (lateFee > 0) {
+            await storage.deductFromBalance(
+              attendanceData.userId,
+              lateFee,
+              "LATE_FEE",
+              `Late fee for ${new Date(attendanceData.meetingDate).toLocaleDateString()}`,
+              req.user!.id,
+              record.id
+            );
+          }
         } catch (deductError) {
           console.error("Failed to deduct late fee:", deductError);
         }

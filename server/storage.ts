@@ -825,6 +825,29 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  calculateLateFee(arrivalTime: Date): number {
+    const hours = arrivalTime.getHours();
+    const minutes = arrivalTime.getMinutes();
+    
+    const totalMinutes = hours * 60 + minutes;
+    const meetingStartMinutes = 10 * 60;
+    
+    if (totalMinutes < meetingStartMinutes + 10) {
+      return 0;
+    }
+    
+    const baseLateFee = 5000;
+    
+    if (totalMinutes < meetingStartMinutes + 20) {
+      return baseLateFee;
+    }
+    
+    const additionalTenMinutes = Math.floor((totalMinutes - (meetingStartMinutes + 20)) / 10);
+    const calculatedFee = baseLateFee + (additionalTenMinutes + 1) * 1000;
+    
+    return Math.min(calculatedFee, 10000);
+  }
+
   async restoreUser(userId: string, restoredByAdminId: string): Promise<void> {
     await db.transaction(async (tx) => {
       await tx
