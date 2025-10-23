@@ -873,6 +873,21 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
+  async resetAllWarnings(): Promise<{ count: number }> {
+    const result = await db
+      .update(warnings)
+      .set({
+        isResolved: true,
+        resolvedDate: new Date(),
+        resolvedByAdminId: null,
+      })
+      .where(eq(warnings.isResolved, false))
+      .returning();
+
+    console.log(`[Warning Reset] Reset ${result.length} warnings on ${new Date().toISOString()}`);
+    return { count: result.length };
+  }
+
   async createPresenter(presenter: InsertPresenter): Promise<Presenter> {
     const [newPresenter] = await db
       .insert(presenters)

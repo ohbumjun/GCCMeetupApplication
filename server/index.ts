@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { setupSchedulers } from "./scheduler";
 
 const app = express();
 app.use(express.json());
@@ -71,6 +72,9 @@ app.use((req, res, next) => {
       console.log(`✅ Server successfully started on 0.0.0.0:${port}`);
       console.log(`🌐 External access configured for port 80 -> ${port}`);
       log(`serving on port ${port}`);
+      
+      // Initialize schedulers after server starts
+      setupSchedulers();
     });
 
     server.on('error', (error: any) => {
