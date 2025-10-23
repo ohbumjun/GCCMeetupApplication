@@ -1,12 +1,12 @@
 import { 
   users, votes, voteResponses, attendanceRecords, roomAssignments, 
-  meetingTopics, suggestions, financialAccounts, financialTransactions,
+  meetingTopics, suggestions, financialAccounts, financialTransactions, warnings,
   type User, type InsertUser, type Vote, type InsertVote,
   type VoteResponse, type InsertVoteResponse, type AttendanceRecord,
   type InsertAttendanceRecord, type RoomAssignment, type InsertRoomAssignment,
   type MeetingTopic, type InsertMeetingTopic, type Suggestion, type InsertSuggestion,
   type FinancialAccount, type InsertFinancialAccount, type FinancialTransaction,
-  type InsertFinancialTransaction
+  type InsertFinancialTransaction, type Warning, type InsertWarning
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, gte, lte, sql, count, isNotNull } from "drizzle-orm";
@@ -88,6 +88,14 @@ export interface IStorage {
   getTransactionHistory(userId: string): Promise<FinancialTransaction[]>;
   getAllFinancialAccounts(): Promise<FinancialAccount[]>;
   updateAnnualFee(userId: string, paid: boolean): Promise<void>;
+
+  // Warning methods
+  createWarning(warning: InsertWarning): Promise<Warning>;
+  getWarningsByUserId(userId: string): Promise<Warning[]>;
+  getUnresolvedWarningCount(userId: string): Promise<number>;
+  getAllActiveWarnings(): Promise<Warning[]>;
+  resolveWarning(warningId: string, resolvedByAdminId: string): Promise<Warning>;
+  checkLowBalanceAndWarn(userId: string, currentBalance: number, issuedByAdminId?: string): Promise<Warning | null>;
 
   sessionStore: any;
 }
@@ -516,7 +524,7 @@ export class DatabaseStorage implements IStorage {
 
     const account = await this.getOrCreateFinancialAccount(userId);
     
-    return await db.transaction(async (tx) => {
+    const transaction = await db.transaction(async (tx) => {
       const currentBalance = parseFloat(account.depositBalance || "0");
       const newBalance = currentBalance + amount;
 
@@ -545,6 +553,9 @@ export class DatabaseStorage implements IStorage {
 
       return transaction;
     });
+
+    await this.checkLowBalanceAndWarn(userId, parseFloat(transaction.balanceAfter), processedByAdminId);
+    return transaction;
   }
 
   async deductFromBalance(
@@ -561,7 +572,7 @@ export class DatabaseStorage implements IStorage {
 
     const account = await this.getOrCreateFinancialAccount(userId);
     
-    return await db.transaction(async (tx) => {
+    const transaction = await db.transaction(async (tx) => {
       const currentBalance = parseFloat(account.depositBalance || "0");
       const newBalance = currentBalance - amount;
 
@@ -589,6 +600,9 @@ export class DatabaseStorage implements IStorage {
 
       return transaction;
     });
+
+    await this.checkLowBalanceAndWarn(userId, parseFloat(transaction.balanceAfter), processedByAdminId);
+    return transaction;
   }
 
   async getTransactionHistory(userId: string): Promise<FinancialTransaction[]> {
@@ -613,6 +627,85 @@ export class DatabaseStorage implements IStorage {
         updatedDate: new Date(),
       })
       .where(eq(financialAccounts.id, account.id));
+  }
+
+  async createWarning(warning: InsertWarning): Promise<Warning> {
+    const [newWarning] = await db
+      .insert(warnings)
+      .values(warning)
+      .returning();
+    return newWarning;
+  }
+
+  async getWarningsByUserId(userId: string): Promise<Warning[]> {
+    return await db
+      .select()
+      .from(warnings)
+      .where(eq(warnings.userId, userId))
+      .orderBy(desc(warnings.createdDate));
+  }
+
+  async getUnresolvedWarningCount(userId: string): Promise<number> {
+    const result = await db
+      .select({ count: count() })
+      .from(warnings)
+      .where(and(
+        eq(warnings.userId, userId),
+        eq(warnings.isResolved, false)
+      ));
+    return result[0]?.count || 0;
+  }
+
+  async getAllActiveWarnings(): Promise<Warning[]> {
+    return await db
+      .select()
+      .from(warnings)
+      .where(eq(warnings.isResolved, false))
+      .orderBy(desc(warnings.createdDate));
+  }
+
+  async resolveWarning(warningId: string, resolvedByAdminId: string): Promise<Warning> {
+    const [resolved] = await db
+      .update(warnings)
+      .set({
+        isResolved: true,
+        resolvedDate: new Date(),
+        resolvedByAdminId,
+      })
+      .where(eq(warnings.id, warningId))
+      .returning();
+    return resolved;
+  }
+
+  async checkLowBalanceAndWarn(
+    userId: string,
+    currentBalance: number,
+    issuedByAdminId?: string
+  ): Promise<Warning | null> {
+    const LOW_BALANCE_THRESHOLD = 15000;
+
+    if (currentBalance <= LOW_BALANCE_THRESHOLD) {
+      const recentWarnings = await db
+        .select()
+        .from(warnings)
+        .where(and(
+          eq(warnings.userId, userId),
+          eq(warnings.warningType, "LOW_BALANCE"),
+          eq(warnings.isResolved, false)
+        ))
+        .limit(1);
+
+      if (recentWarnings.length === 0) {
+        return await this.createWarning({
+          userId,
+          warningType: "LOW_BALANCE",
+          reason: `잔액이 ${currentBalance.toLocaleString()}원으로 ${LOW_BALANCE_THRESHOLD.toLocaleString()}원 이하입니다.`,
+          issuedByAdminId,
+        });
+      }
+    }
+
+    return null;
   }
 }
 

@@ -494,6 +494,79 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Warning management
+  app.get("/api/warnings", requireAdmin, async (req, res, next) => {
+    try {
+      const warnings = await storage.getAllActiveWarnings();
+      res.json(warnings);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/warnings/user/:userId", requireAuth, async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      
+      if (req.user!.role !== "ADMIN" && req.user!.id !== userId) {
+        return res.status(403).json({ message: "Cannot view other users' warnings" });
+      }
+
+      const warnings = await storage.getWarningsByUserId(userId);
+      res.json(warnings);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/warnings/count/:userId", requireAuth, async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      
+      if (req.user!.role !== "ADMIN" && req.user!.id !== userId) {
+        return res.status(403).json({ message: "Cannot view other users' warning count" });
+      }
+
+      const count = await storage.getUnresolvedWarningCount(userId);
+      res.json({ count });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/warnings", requireAdmin, async (req, res, next) => {
+    try {
+      const schema = z.object({
+        userId: z.string(),
+        warningType: z.enum(["LOW_BALANCE", "CANCELLATION_PENALTY", "LATE_PENALTY", "ABSENCE_WARNING", "OTHER"]),
+        reason: z.string(),
+      });
+
+      const data = schema.parse(req.body);
+      
+      const warning = await storage.createWarning({
+        ...data,
+        issuedByAdminId: req.user!.id,
+        isResolved: false,
+      });
+
+      res.status(201).json(warning);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/warnings/:warningId/resolve", requireAdmin, async (req, res, next) => {
+    try {
+      const { warningId } = req.params;
+      
+      const warning = await storage.resolveWarning(warningId, req.user!.id);
+      res.json(warning);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

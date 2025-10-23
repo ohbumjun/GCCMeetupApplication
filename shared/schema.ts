@@ -12,7 +12,7 @@ export const membershipLevelEnum = pgEnum("membership_level", [
   "HONOR_IV", "HONOR_III", "HONOR_II", "HONOR_I"
 ]);
 
-export const statusEnum = pgEnum("status", ["ACTIVE", "INACTIVE"]);
+export const statusEnum = pgEnum("status", ["ACTIVE", "INACTIVE", "SUSPENDED"]);
 
 export const roleEnum = pgEnum("role", ["USER", "ADMIN"]);
 
@@ -33,6 +33,14 @@ export const transactionTypeEnum = pgEnum("transaction_type", [
   "PRESENTER_PENALTY",
   "REFUND",
   "ADJUSTMENT"
+]);
+
+export const warningTypeEnum = pgEnum("warning_type", [
+  "LOW_BALANCE",
+  "CANCELLATION_PENALTY",
+  "LATE_PENALTY",
+  "ABSENCE_WARNING",
+  "OTHER"
 ]);
 
 // Tables
@@ -141,6 +149,18 @@ export const financialTransactions = pgTable("financial_transactions", {
   createdDate: timestamp("created_date").defaultNow(),
 });
 
+export const warnings = pgTable("warnings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  warningType: warningTypeEnum("warning_type").notNull(),
+  reason: text("reason").notNull(),
+  issuedByAdminId: varchar("issued_by_admin_id").references(() => users.id),
+  isResolved: boolean("is_resolved").default(false),
+  resolvedDate: timestamp("resolved_date"),
+  resolvedByAdminId: varchar("resolved_by_admin_id").references(() => users.id),
+  createdDate: timestamp("created_date").defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ one, many }) => ({
   voteResponses: many(voteResponses),
@@ -152,6 +172,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   createdMeetingTopics: many(meetingTopics),
   financialAccount: one(financialAccounts),
   financialTransactions: many(financialTransactions),
+  warnings: many(warnings),
 }));
 
 export const votesRelations = relations(votes, ({ one, many }) => ({
@@ -232,6 +253,21 @@ export const financialTransactionsRelations = relations(financialTransactions, (
   }),
 }));
 
+export const warningsRelations = relations(warnings, ({ one }) => ({
+  user: one(users, {
+    fields: [warnings.userId],
+    references: [users.id],
+  }),
+  issuedByAdmin: one(users, {
+    fields: [warnings.issuedByAdminId],
+    references: [users.id],
+  }),
+  resolvedByAdmin: one(users, {
+    fields: [warnings.resolvedByAdminId],
+    references: [users.id],
+  }),
+}));
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -280,6 +316,12 @@ export const insertFinancialTransactionSchema = createInsertSchema(financialTran
   createdDate: true,
 });
 
+export const insertWarningSchema = createInsertSchema(warnings).omit({
+  id: true,
+  createdDate: true,
+  resolvedDate: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -299,3 +341,5 @@ export type FinancialAccount = typeof financialAccounts.$inferSelect;
 export type InsertFinancialAccount = z.infer<typeof insertFinancialAccountSchema>;
 export type FinancialTransaction = typeof financialTransactions.$inferSelect;
 export type InsertFinancialTransaction = z.infer<typeof insertFinancialTransactionSchema>;
+export type Warning = typeof warnings.$inferSelect;
+export type InsertWarning = z.infer<typeof insertWarningSchema>;
