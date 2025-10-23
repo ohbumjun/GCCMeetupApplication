@@ -201,6 +201,91 @@ export class DatabaseStorage implements IStorage {
     return newResponse;
   }
 
+  async updateVoteResponse(voteId: string, userId: string, newResponse: "YES" | "NO" | "NO_RESPONSE"): Promise<VoteResponse> {
+    const existing = await this.getUserVoteResponse(voteId, userId);
+    if (!existing) {
+      throw new Error("No existing vote response found");
+    }
+
+    const vote = await this.getVoteById(voteId);
+    if (!vote) {
+      throw new Error("Vote not found");
+    }
+
+    const oldResponse = existing.response;
+    let penaltyApplied = false;
+    let penaltyAmount = 0;
+
+    if (oldResponse === "YES" && newResponse === "NO") {
+      const now = new Date();
+      const meetingDate = new Date(vote.meetingDate);
+      
+      const meetingDayOfWeek = meetingDate.getDay();
+      const meetingWeekStart = new Date(meetingDate);
+      meetingWeekStart.setDate(meetingDate.getDate() - meetingDayOfWeek);
+      
+      const thursdayNight = new Date(meetingWeekStart);
+      thursdayNight.setDate(meetingWeekStart.getDate() + 4);
+      thursdayNight.setHours(23, 59, 59, 999);
+      
+      const fridayStart = new Date(meetingWeekStart);
+      fridayStart.setDate(meetingWeekStart.getDate() + 5);
+      fridayStart.setHours(0, 0, 0, 0);
+      
+      const sundayStart = new Date(meetingWeekStart);
+      sundayStart.setDate(meetingWeekStart.getDate() + 7);
+      sundayStart.setHours(0, 0, 0, 0);
+
+      if (now <= thursdayNight) {
+        penaltyAmount = 0;
+      } else if (now >= fridayStart && now < sundayStart) {
+        penaltyAmount = 10000;
+      } else if (now >= sundayStart) {
+        penaltyAmount = 25000;
+      }
+
+      if (penaltyAmount > 0) {
+        penaltyApplied = true;
+        
+        await this.deductFromBalance(
+          userId,
+          penaltyAmount,
+          "CANCELLATION_PENALTY",
+          `출석 취소 패널티 (${penaltyAmount === 10000 ? '금~토요일' : '일요일'} 취소): ${penaltyAmount.toLocaleString()}원`,
+          null
+        );
+
+        if (penaltyAmount === 25000) {
+          await this.createWarning({
+            userId,
+            warningType: "CANCELLATION_PENALTY",
+            reason: `일요일(당일) 출석 취소 - ${penaltyAmount.toLocaleString()}원 패널티 부과`,
+            issuedByAdminId: null,
+            isResolved: false,
+          });
+
+          await this.checkAndSuspendUser(userId);
+        }
+
+        console.log(`[Cancellation] User ${userId} penalized ${penaltyAmount}원 for canceling on ${now.toLocaleString()}`);
+      }
+    }
+
+    const [updated] = await db
+      .update(voteResponses)
+      .set({
+        response: newResponse,
+        updatedDate: new Date(),
+      })
+      .where(and(
+        eq(voteResponses.voteId, voteId),
+        eq(voteResponses.userId, userId)
+      ))
+      .returning();
+
+    return updated;
+  }
+
   async getVoteResponses(voteId: string): Promise<VoteResponse[]> {
     return await db
       .select()

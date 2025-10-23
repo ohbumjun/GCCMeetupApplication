@@ -182,10 +182,11 @@ export function registerRoutes(app: Express): Server {
       const voteId = req.params.id;
       const userId = req.user!.id;
       
-      // Check if user already voted
       const existingResponse = await storage.getUserVoteResponse(voteId, userId);
+      
       if (existingResponse) {
-        return res.status(400).json({ message: "You have already voted" });
+        const updated = await storage.updateVoteResponse(voteId, userId, req.body.response);
+        return res.json(updated);
       }
       
       const responseData = insertVoteResponseSchema.parse({
