@@ -1,10 +1,12 @@
 import { 
   users, votes, voteResponses, attendanceRecords, roomAssignments, 
-  meetingTopics, suggestions,
+  meetingTopics, suggestions, financialAccounts, financialTransactions,
   type User, type InsertUser, type Vote, type InsertVote,
   type VoteResponse, type InsertVoteResponse, type AttendanceRecord,
   type InsertAttendanceRecord, type RoomAssignment, type InsertRoomAssignment,
-  type MeetingTopic, type InsertMeetingTopic, type Suggestion, type InsertSuggestion
+  type MeetingTopic, type InsertMeetingTopic, type Suggestion, type InsertSuggestion,
+  type FinancialAccount, type InsertFinancialAccount, type FinancialTransaction,
+  type InsertFinancialTransaction
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, gte, lte, sql, count, isNotNull } from "drizzle-orm";
@@ -77,6 +79,15 @@ export interface IStorage {
     activityScore: number;
     rank: number;
   }>>;
+
+  // Financial methods
+  getOrCreateFinancialAccount(userId: string): Promise<FinancialAccount>;
+  getFinancialAccount(userId: string): Promise<FinancialAccount | undefined>;
+  updateDepositBalance(userId: string, amount: number, description: string, processedByAdminId?: string, relatedAttendanceId?: string): Promise<FinancialTransaction>;
+  deductFromBalance(userId: string, amount: number, transactionType: string, description: string, processedByAdminId?: string, relatedAttendanceId?: string): Promise<FinancialTransaction>;
+  getTransactionHistory(userId: string): Promise<FinancialTransaction[]>;
+  getAllFinancialAccounts(): Promise<FinancialAccount[]>;
+  updateAnnualFee(userId: string, paid: boolean): Promise<void>;
 
   sessionStore: any;
 }
@@ -468,6 +479,129 @@ export class DatabaseStorage implements IStorage {
     });
 
     return rankings;
+  }
+
+  async getOrCreateFinancialAccount(userId: string): Promise<FinancialAccount> {
+    const existing = await this.getFinancialAccount(userId);
+    if (existing) {
+      return existing;
+    }
+
+    const [account] = await db
+      .insert(financialAccounts)
+      .values({
+        userId,
+        annualFeePaid: false,
+        depositBalance: "0.00",
+      })
+      .returning();
+    return account;
+  }
+
+  async getFinancialAccount(userId: string): Promise<FinancialAccount | undefined> {
+    const [account] = await db
+      .select()
+      .from(financialAccounts)
+      .where(eq(financialAccounts.userId, userId));
+    return account || undefined;
+  }
+
+  async updateDepositBalance(
+    userId: string,
+    amount: number,
+    description: string,
+    processedByAdminId?: string,
+    relatedAttendanceId?: string
+  ): Promise<FinancialTransaction> {
+    const account = await this.getOrCreateFinancialAccount(userId);
+    const currentBalance = parseFloat(account.depositBalance || "0");
+    const newBalance = currentBalance + amount;
+
+    await db
+      .update(financialAccounts)
+      .set({
+        depositBalance: newBalance.toFixed(2),
+        lastDepositDate: new Date(),
+        updatedDate: new Date(),
+      })
+      .where(eq(financialAccounts.id, account.id));
+
+    const [transaction] = await db
+      .insert(financialTransactions)
+      .values({
+        userId,
+        accountId: account.id,
+        transactionType: "DEPOSIT",
+        amount: amount.toFixed(2),
+        balanceAfter: newBalance.toFixed(2),
+        description,
+        relatedAttendanceId,
+        processedByAdminId,
+      })
+      .returning();
+
+    return transaction;
+  }
+
+  async deductFromBalance(
+    userId: string,
+    amount: number,
+    transactionType: string,
+    description: string,
+    processedByAdminId?: string,
+    relatedAttendanceId?: string
+  ): Promise<FinancialTransaction> {
+    const account = await this.getOrCreateFinancialAccount(userId);
+    const currentBalance = parseFloat(account.depositBalance || "0");
+    const newBalance = currentBalance - amount;
+
+    await db
+      .update(financialAccounts)
+      .set({
+        depositBalance: newBalance.toFixed(2),
+        updatedDate: new Date(),
+      })
+      .where(eq(financialAccounts.id, account.id));
+
+    const [transaction] = await db
+      .insert(financialTransactions)
+      .values({
+        userId,
+        accountId: account.id,
+        transactionType: transactionType as any,
+        amount: (-amount).toFixed(2),
+        balanceAfter: newBalance.toFixed(2),
+        description,
+        relatedAttendanceId,
+        processedByAdminId,
+      })
+      .returning();
+
+    return transaction;
+  }
+
+  async getTransactionHistory(userId: string): Promise<FinancialTransaction[]> {
+    return await db
+      .select()
+      .from(financialTransactions)
+      .where(eq(financialTransactions.userId, userId))
+      .orderBy(desc(financialTransactions.createdDate));
+  }
+
+  async getAllFinancialAccounts(): Promise<FinancialAccount[]> {
+    return await db.select().from(financialAccounts);
+  }
+
+  async updateAnnualFee(userId: string, paid: boolean): Promise<void> {
+    const account = await this.getOrCreateFinancialAccount(userId);
+    await db
+      .update(financialAccounts)
+      .set({
+        annualFeePaid: paid,
+        annualFeeDate: paid ? new Date() : null,
+        updatedDate: new Date(),
+      })
+      .where(eq(financialAccounts.id, account.id));
   }
 }
 

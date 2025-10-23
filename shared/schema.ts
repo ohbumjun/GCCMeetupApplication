@@ -24,6 +24,17 @@ export const attendanceStatusEnum = pgEnum("attendance_status", ["PRESENT", "ABS
 
 export const suggestionStatusEnum = pgEnum("suggestion_status", ["PENDING", "REVIEWED"]);
 
+export const transactionTypeEnum = pgEnum("transaction_type", [
+  "ANNUAL_FEE", 
+  "DEPOSIT", 
+  "ROOM_FEE", 
+  "LATE_FEE", 
+  "CANCELLATION_PENALTY", 
+  "PRESENTER_PENALTY",
+  "REFUND",
+  "ADJUSTMENT"
+]);
+
 // Tables
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -106,8 +117,32 @@ export const suggestions = pgTable("suggestions", {
   createdDate: timestamp("created_date").defaultNow(),
 });
 
+export const financialAccounts = pgTable("financial_accounts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull().unique(),
+  annualFeePaid: boolean("annual_fee_paid").default(false),
+  annualFeeDate: timestamp("annual_fee_date"),
+  depositBalance: decimal("deposit_balance", { precision: 10, scale: 2 }).default("0.00"),
+  lastDepositDate: timestamp("last_deposit_date"),
+  createdDate: timestamp("created_date").defaultNow(),
+  updatedDate: timestamp("updated_date").defaultNow(),
+});
+
+export const financialTransactions = pgTable("financial_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  accountId: varchar("account_id").references(() => financialAccounts.id).notNull(),
+  transactionType: transactionTypeEnum("transaction_type").notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  balanceAfter: decimal("balance_after", { precision: 10, scale: 2 }).notNull(),
+  description: text("description"),
+  relatedAttendanceId: varchar("related_attendance_id").references(() => attendanceRecords.id),
+  processedByAdminId: varchar("processed_by_admin_id").references(() => users.id),
+  createdDate: timestamp("created_date").defaultNow(),
+});
+
 // Relations
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ one, many }) => ({
   voteResponses: many(voteResponses),
   attendanceRecords: many(attendanceRecords),
   suggestions: many(suggestions),
@@ -115,6 +150,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   updatedAttendanceRecords: many(attendanceRecords),
   createdRoomAssignments: many(roomAssignments),
   createdMeetingTopics: many(meetingTopics),
+  financialAccount: one(financialAccounts),
+  financialTransactions: many(financialTransactions),
 }));
 
 export const votesRelations = relations(votes, ({ one, many }) => ({
@@ -168,6 +205,33 @@ export const suggestionsRelations = relations(suggestions, ({ one }) => ({
   }),
 }));
 
+export const financialAccountsRelations = relations(financialAccounts, ({ one, many }) => ({
+  user: one(users, {
+    fields: [financialAccounts.userId],
+    references: [users.id],
+  }),
+  transactions: many(financialTransactions),
+}));
+
+export const financialTransactionsRelations = relations(financialTransactions, ({ one }) => ({
+  user: one(users, {
+    fields: [financialTransactions.userId],
+    references: [users.id],
+  }),
+  account: one(financialAccounts, {
+    fields: [financialTransactions.accountId],
+    references: [financialAccounts.id],
+  }),
+  relatedAttendance: one(attendanceRecords, {
+    fields: [financialTransactions.relatedAttendanceId],
+    references: [attendanceRecords.id],
+  }),
+  processedByAdmin: one(users, {
+    fields: [financialTransactions.processedByAdminId],
+    references: [users.id],
+  }),
+}));
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -205,6 +269,17 @@ export const insertSuggestionSchema = createInsertSchema(suggestions).omit({
   createdDate: true,
 });
 
+export const insertFinancialAccountSchema = createInsertSchema(financialAccounts).omit({
+  id: true,
+  createdDate: true,
+  updatedDate: true,
+});
+
+export const insertFinancialTransactionSchema = createInsertSchema(financialTransactions).omit({
+  id: true,
+  createdDate: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -220,3 +295,7 @@ export type MeetingTopic = typeof meetingTopics.$inferSelect;
 export type InsertMeetingTopic = z.infer<typeof insertMeetingTopicSchema>;
 export type Suggestion = typeof suggestions.$inferSelect;
 export type InsertSuggestion = z.infer<typeof insertSuggestionSchema>;
+export type FinancialAccount = typeof financialAccounts.$inferSelect;
+export type InsertFinancialAccount = z.infer<typeof insertFinancialAccountSchema>;
+export type FinancialTransaction = typeof financialTransactions.$inferSelect;
+export type InsertFinancialTransaction = z.infer<typeof insertFinancialTransactionSchema>;
