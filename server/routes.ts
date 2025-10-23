@@ -426,11 +426,21 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/financial/deposit", requireAdmin, async (req, res, next) => {
     try {
-      const { userId, amount, description } = req.body;
+      const schema = z.object({
+        userId: z.string(),
+        amount: z.number().positive().or(z.string().transform(val => {
+          const num = parseFloat(val);
+          if (isNaN(num) || num <= 0) throw new Error("Amount must be a positive number");
+          return num;
+        })),
+        description: z.string().optional(),
+      });
+
+      const { userId, amount, description } = schema.parse(req.body);
       
       const transaction = await storage.updateDepositBalance(
         userId,
-        parseFloat(amount),
+        typeof amount === 'number' ? amount : parseFloat(amount),
         description || "Deposit",
         req.user!.id
       );
@@ -443,11 +453,23 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/financial/deduct", requireAdmin, async (req, res, next) => {
     try {
-      const { userId, amount, transactionType, description, relatedAttendanceId } = req.body;
+      const schema = z.object({
+        userId: z.string(),
+        amount: z.number().positive().or(z.string().transform(val => {
+          const num = parseFloat(val);
+          if (isNaN(num) || num <= 0) throw new Error("Amount must be a positive number");
+          return num;
+        })),
+        transactionType: z.enum(["ROOM_FEE", "LATE_FEE", "CANCELLATION_PENALTY", "PRESENTER_PENALTY", "ANNUAL_FEE", "ADJUSTMENT"]),
+        description: z.string().optional(),
+        relatedAttendanceId: z.string().optional(),
+      });
+
+      const { userId, amount, transactionType, description, relatedAttendanceId } = schema.parse(req.body);
       
       const transaction = await storage.deductFromBalance(
         userId,
-        parseFloat(amount),
+        typeof amount === 'number' ? amount : parseFloat(amount),
         transactionType,
         description || "Deduction",
         req.user!.id,

@@ -265,10 +265,7 @@ export class DatabaseStorage implements IStorage {
   async createRoomAssignment(assignment: InsertRoomAssignment): Promise<RoomAssignment> {
     const [newAssignment] = await db
       .insert(roomAssignments)
-      .values({
-        ...assignment,
-        assignedMembers: assignment.assignedMembers || []
-      })
+      .values(assignment)
       .returning();
     return newAssignment;
   }
@@ -513,34 +510,41 @@ export class DatabaseStorage implements IStorage {
     processedByAdminId?: string,
     relatedAttendanceId?: string
   ): Promise<FinancialTransaction> {
+    if (amount <= 0) {
+      throw new Error("Amount must be positive");
+    }
+
     const account = await this.getOrCreateFinancialAccount(userId);
-    const currentBalance = parseFloat(account.depositBalance || "0");
-    const newBalance = currentBalance + amount;
+    
+    return await db.transaction(async (tx) => {
+      const currentBalance = parseFloat(account.depositBalance || "0");
+      const newBalance = currentBalance + amount;
 
-    await db
-      .update(financialAccounts)
-      .set({
-        depositBalance: newBalance.toFixed(2),
-        lastDepositDate: new Date(),
-        updatedDate: new Date(),
-      })
-      .where(eq(financialAccounts.id, account.id));
+      await tx
+        .update(financialAccounts)
+        .set({
+          depositBalance: newBalance.toFixed(2),
+          lastDepositDate: new Date(),
+          updatedDate: new Date(),
+        })
+        .where(eq(financialAccounts.id, account.id));
 
-    const [transaction] = await db
-      .insert(financialTransactions)
-      .values({
-        userId,
-        accountId: account.id,
-        transactionType: "DEPOSIT",
-        amount: amount.toFixed(2),
-        balanceAfter: newBalance.toFixed(2),
-        description,
-        relatedAttendanceId,
-        processedByAdminId,
-      })
-      .returning();
+      const [transaction] = await tx
+        .insert(financialTransactions)
+        .values({
+          userId,
+          accountId: account.id,
+          transactionType: "DEPOSIT",
+          amount: amount.toFixed(2),
+          balanceAfter: newBalance.toFixed(2),
+          description,
+          relatedAttendanceId,
+          processedByAdminId,
+        })
+        .returning();
 
-    return transaction;
+      return transaction;
+    });
   }
 
   async deductFromBalance(
@@ -551,33 +555,40 @@ export class DatabaseStorage implements IStorage {
     processedByAdminId?: string,
     relatedAttendanceId?: string
   ): Promise<FinancialTransaction> {
+    if (amount <= 0) {
+      throw new Error("Amount must be positive");
+    }
+
     const account = await this.getOrCreateFinancialAccount(userId);
-    const currentBalance = parseFloat(account.depositBalance || "0");
-    const newBalance = currentBalance - amount;
+    
+    return await db.transaction(async (tx) => {
+      const currentBalance = parseFloat(account.depositBalance || "0");
+      const newBalance = currentBalance - amount;
 
-    await db
-      .update(financialAccounts)
-      .set({
-        depositBalance: newBalance.toFixed(2),
-        updatedDate: new Date(),
-      })
-      .where(eq(financialAccounts.id, account.id));
+      await tx
+        .update(financialAccounts)
+        .set({
+          depositBalance: newBalance.toFixed(2),
+          updatedDate: new Date(),
+        })
+        .where(eq(financialAccounts.id, account.id));
 
-    const [transaction] = await db
-      .insert(financialTransactions)
-      .values({
-        userId,
-        accountId: account.id,
-        transactionType: transactionType as any,
-        amount: (-amount).toFixed(2),
-        balanceAfter: newBalance.toFixed(2),
-        description,
-        relatedAttendanceId,
-        processedByAdminId,
-      })
-      .returning();
+      const [transaction] = await tx
+        .insert(financialTransactions)
+        .values({
+          userId,
+          accountId: account.id,
+          transactionType: transactionType as any,
+          amount: (-amount).toFixed(2),
+          balanceAfter: newBalance.toFixed(2),
+          description,
+          relatedAttendanceId,
+          processedByAdminId,
+        })
+        .returning();
 
-    return transaction;
+      return transaction;
+    });
   }
 
   async getTransactionHistory(userId: string): Promise<FinancialTransaction[]> {

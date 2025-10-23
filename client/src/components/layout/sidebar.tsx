@@ -15,13 +15,15 @@ import {
   User, 
   X,
   Menu,
-  LogOut
+  LogOut,
+  Wallet
 } from "lucide-react";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: Home },
   { name: "Voting", href: "/voting", icon: Vote },
   { name: "Attendance", href: "/attendance", icon: CalendarCheck },
+  { name: "Financial", href: "/financial", icon: Wallet },
   { name: "Members", href: "/members", icon: Users },
   { name: "Rankings", href: "/rankings", icon: Trophy },
   { name: "Room Assignment", href: "/room-assignment", icon: DoorOpen },

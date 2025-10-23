@@ -38,6 +38,8 @@ Preferred communication style: Simple, everyday language.
   - RoomAssignments (smart room allocation)
   - MeetingTopics (topic management)
   - Suggestions (member feedback system)
+  - FinancialAccounts (member financial accounts, annual fee, deposit balance)
+  - FinancialTransactions (transaction history, automatic fee deductions)
 
 ### Authentication & Authorization
 - **Strategy**: Session-based authentication with secure password hashing
