@@ -32,14 +32,16 @@ Preferred communication style: Simple, everyday language.
 - **Connection**: Neon Database serverless PostgreSQL
 - **Schema Management**: Drizzle Kit for migrations and schema updates
 - **Key Tables**: 
-  - Users (with membership levels, industries, contact info)
+  - Users (with membership levels, industries, contact info, Lead/Sub-Lead roles, consecutive absences tracking)
   - Votes and VoteResponses (attendance voting system)
-  - AttendanceRecords (meeting attendance tracking)
+  - AttendanceRecords (meeting attendance tracking with arrival time for late fee calculation)
   - RoomAssignments (smart room allocation)
   - MeetingTopics (topic management)
   - Suggestions (member feedback system)
   - FinancialAccounts (member financial accounts, annual fee, deposit balance)
   - FinancialTransactions (transaction history, automatic fee deductions)
+  - Presenters (presenter scheduling, topic/material submission tracking, deadline management)
+  - Warnings (warning system with automatic suspension)
 
 ### Authentication & Authorization
 - **Strategy**: Session-based authentication with secure password hashing
@@ -88,3 +90,54 @@ Preferred communication style: Simple, everyday language.
 - **wouter**: Lightweight React router
 - **clsx**: Conditional CSS class composition
 - **connect-pg-simple**: PostgreSQL session store
+
+## Recent Updates (2025-10-23)
+
+### Phase 10: Advanced Features Implementation
+
+**1. Presenter Management System (Phase 8)**
+- Created `presenters` table with submission status tracking (NOT_SUBMITTED, TOPIC_SUBMITTED, MATERIAL_SUBMITTED, LATE_SUBMISSION)
+- Implemented storage methods for presenter CRUD operations
+- Added API endpoints for presenter scheduling and submission tracking
+- Deadline management: Thursday night deadline with 5,000원 penalty for late submissions
+- Absence penalty: 25,000원 for presenter no-shows
+- UI: Presenters page added to navigation with presentation status display
+
+**2. Consecutive Absence Tracking (Phase 9)**
+- Added `isLead` and `isSubLead` fields to users table
+- Implemented automatic consecutive absence counting on attendance updates
+- Honor-level graduated thresholds:
+  - Default members: 4 weeks → automatic suspension
+  - Honor I: 5 weeks
+  - Honor II: 6 weeks
+  - Honor III: 7 weeks
+  - Honor IV: 8 weeks
+  - Sub-Lead: 6 weeks
+  - Lead: exempt from automatic suspension
+- Automatic SUSPENDED status when threshold exceeded
+
+**3. Time-Based Late Fee Calculation (Phase 10)**
+- Added `arrivalTime` field to attendance records
+- Implemented graduated late fee calculation:
+  - Before 10:10: No late fee
+  - 10:10-10:19: 5,000원 base late fee
+  - 10:20+: 5,000원 + 1,000원 per additional 10 minutes
+  - Maximum: 10,000원
+- Integrated with attendance API for automatic fee deduction
+
+### Business Rules Implementation
+- **Annual Fee**: 30,000원 automatic deduction on account creation
+- **Deposit**: 50,000원 required balance
+- **Room Fee**: 5,000원 per meeting attendance
+- **Late Fee**: Graduated based on arrival time (5,000-10,000원)
+- **Cancellation Penalty**: 10,000원 for voting YES but being absent
+- **Warning System**: 3 unresolved warnings → automatic suspension
+- **Warning Reset**: Scheduled for January 1st and July 1st (6-month cycles)
+- **Balance Alert**: Warning issued when balance drops below 15,000원
+
+### Technical Implementation
+- All penalty calculations happen server-side in storage layer
+- Transactional integrity for financial operations
+- Automatic warning creation for penalties
+- Cascade suspension checks after warnings
+- Honor-based graduated thresholds for member retention
