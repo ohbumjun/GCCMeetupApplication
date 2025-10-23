@@ -1001,6 +1001,61 @@ export class DatabaseStorage implements IStorage {
         .where(eq(presenters.id, presenterId));
     });
   }
+
+  async processVoteDeadlines(): Promise<{ voteId: string; nonVotersCount: number }[]> {
+    const now = new Date();
+    const results: { voteId: string; nonVotersCount: number }[] = [];
+
+    const overdueVotes = await db
+      .select()
+      .from(votes)
+      .where(and(
+        eq(votes.status, "ACTIVE"),
+        lte(votes.deadlineDate, now)
+      ));
+
+    for (const vote of overdueVotes) {
+      const existingResponses = await db
+        .select()
+        .from(voteResponses)
+        .where(eq(voteResponses.voteId, vote.id));
+
+      const respondedUserIds = new Set(existingResponses.map(r => r.userId));
+
+      const activeUsers = await db
+        .select()
+        .from(users)
+        .where(eq(users.status, "ACTIVE"));
+
+      const nonVoters = activeUsers.filter(user => !respondedUserIds.has(user.id));
+
+      for (const nonVoter of nonVoters) {
+        await this.createWarning({
+          userId: nonVoter.id,
+          warningType: "ABSENCE_WARNING",
+          reason: `Vote 미투표 (${vote.title}). 데드라인: ${vote.deadlineDate.toLocaleString()}`,
+          issuedByAdminId: null,
+          isResolved: false,
+        });
+
+        await this.checkAndSuspendUser(nonVoter.id);
+      }
+
+      await db
+        .update(votes)
+        .set({ status: "CLOSED" })
+        .where(eq(votes.id, vote.id));
+
+      results.push({
+        voteId: vote.id,
+        nonVotersCount: nonVoters.length,
+      });
+
+      console.log(`[Vote Deadline] Processed vote "${vote.title}": ${nonVoters.length} non-voters penalized`);
+    }
+
+    return results;
+  }
 }
 
 export const storage = new DatabaseStorage();

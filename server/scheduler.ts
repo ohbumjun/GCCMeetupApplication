@@ -15,6 +15,21 @@ export function setupSchedulers() {
     timezone: "Asia/Seoul"
   });
 
+  // Vote 데드라인 체크 - 매주 수요일 19:30 (KST 기준)
+  cron.schedule("30 19 * * 3", async () => {
+    console.log("[Scheduler] Running vote deadline check...");
+    try {
+      const results = await storage.processVoteDeadlines();
+      const totalNonVoters = results.reduce((sum, r) => sum + r.nonVotersCount, 0);
+      console.log(`[Scheduler] Processed ${results.length} votes, ${totalNonVoters} total non-voters penalized`);
+    } catch (error) {
+      console.error("[Scheduler] Error processing vote deadlines:", error);
+    }
+  }, {
+    timezone: "Asia/Seoul"
+  });
+
   console.log("✅ Schedulers initialized");
   console.log("  - Warning reset: Jan 1 & Jul 1 at 00:00 KST");
+  console.log("  - Vote deadline check: Every Wednesday at 19:30 KST");
 }
