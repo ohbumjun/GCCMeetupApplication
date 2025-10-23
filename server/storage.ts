@@ -65,6 +65,19 @@ export interface IStorage {
     consecutiveAbsentees: number;
   }>;
 
+  // Rankings methods
+  getMemberRankings(): Promise<Array<{
+    userId: string;
+    username: string;
+    koreanName: string;
+    englishName: string;
+    attendanceRate: string;
+    totalAttendance: number;
+    voteParticipation: number;
+    activityScore: number;
+    rank: number;
+  }>>;
+
   sessionStore: any;
 }
 
@@ -377,6 +390,84 @@ export class DatabaseStorage implements IStorage {
       activeVotesCount: votesCount.count,
       consecutiveAbsentees,
     };
+  }
+
+  async getMemberRankings(): Promise<Array<{
+    userId: string;
+    username: string;
+    koreanName: string;
+    englishName: string;
+    attendanceRate: string;
+    totalAttendance: number;
+    voteParticipation: number;
+    activityScore: number;
+    rank: number;
+  }>> {
+    // Get all active users
+    const allUsers = await db
+      .select()
+      .from(users)
+      .where(eq(users.status, "ACTIVE"));
+
+    // Calculate rankings for each user
+    const rankings = await Promise.all(
+      allUsers.map(async (user) => {
+        // Get total attendance count
+        const userAttendance = await db
+          .select()
+          .from(attendanceRecords)
+          .where(eq(attendanceRecords.userId, user.id));
+        
+        const totalAttendance = userAttendance.filter(
+          r => r.status === "PRESENT" || r.status === "LATE"
+        ).length;
+
+        // Get total votes and user's vote participation
+        const totalVotes = await db
+          .select({ count: count() })
+          .from(votes);
+        
+        const userVoteResponses = await db
+          .select({ count: count() })
+          .from(voteResponses)
+          .where(eq(voteResponses.userId, user.id));
+
+        const voteParticipation = totalVotes[0].count > 0
+          ? Math.round((userVoteResponses[0].count / totalVotes[0].count) * 100)
+          : 0;
+
+        // Calculate activity score
+        // Formula: attendanceRate * 0.5 + voteParticipation * 0.3 + (totalAttendance * 2) * 0.2
+        const attendanceRate = parseFloat(user.attendanceRate || "0");
+        const activityScore = Math.round(
+          attendanceRate * 0.5 + 
+          voteParticipation * 0.3 + 
+          (totalAttendance * 2) * 0.2
+        );
+
+        return {
+          userId: user.id,
+          username: user.username,
+          koreanName: user.koreanName || "",
+          englishName: user.englishName || "",
+          attendanceRate: user.attendanceRate || "0.00",
+          totalAttendance,
+          voteParticipation,
+          activityScore,
+          rank: 0, // Will be assigned after sorting
+        };
+      })
+    );
+
+    // Sort by activity score (descending)
+    rankings.sort((a, b) => b.activityScore - a.activityScore);
+
+    // Assign ranks
+    rankings.forEach((ranking, index) => {
+      ranking.rank = index + 1;
+    });
+
+    return rankings;
   }
 }
 

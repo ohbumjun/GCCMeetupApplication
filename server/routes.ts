@@ -336,6 +336,16 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Rankings
+  app.get("/api/rankings", requireAuth, async (req, res, next) => {
+    try {
+      const rankings = await storage.getMemberRankings();
+      res.json(rankings);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
