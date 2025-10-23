@@ -13,6 +13,8 @@ import { eq, desc, and, gte, lte, sql, count, isNotNull } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
+import { toZonedTime, fromZonedTime } from 'date-fns-tz';
+import { addDays, setHours, setMinutes, setSeconds, setMilliseconds } from 'date-fns';
 
 const PostgresSessionStore = connectPg(session);
 
@@ -217,30 +219,39 @@ export class DatabaseStorage implements IStorage {
     let penaltyAmount = 0;
 
     if (oldResponse === "YES" && newResponse === "NO") {
-      const now = new Date();
-      const meetingDate = new Date(vote.meetingDate);
+      const KST_TIMEZONE = 'Asia/Seoul';
       
-      const meetingDayOfWeek = meetingDate.getDay();
-      const meetingWeekStart = new Date(meetingDate);
-      meetingWeekStart.setDate(meetingDate.getDate() - meetingDayOfWeek);
+      const nowUTC = new Date();
       
-      const thursdayNight = new Date(meetingWeekStart);
-      thursdayNight.setDate(meetingWeekStart.getDate() + 4);
-      thursdayNight.setHours(23, 59, 59, 999);
+      const meetingDateKST = toZonedTime(vote.meetingDate, KST_TIMEZONE);
       
-      const fridayStart = new Date(meetingWeekStart);
-      fridayStart.setDate(meetingWeekStart.getDate() + 5);
-      fridayStart.setHours(0, 0, 0, 0);
+      let sundayStartKST = new Date(meetingDateKST);
+      sundayStartKST = setHours(sundayStartKST, 0);
+      sundayStartKST = setMinutes(sundayStartKST, 0);
+      sundayStartKST = setSeconds(sundayStartKST, 0);
+      sundayStartKST = setMilliseconds(sundayStartKST, 0);
       
-      const sundayStart = new Date(meetingWeekStart);
-      sundayStart.setDate(meetingWeekStart.getDate() + 7);
-      sundayStart.setHours(0, 0, 0, 0);
+      let thursdayNightKST = addDays(sundayStartKST, -3);
+      thursdayNightKST = setHours(thursdayNightKST, 23);
+      thursdayNightKST = setMinutes(thursdayNightKST, 59);
+      thursdayNightKST = setSeconds(thursdayNightKST, 59);
+      thursdayNightKST = setMilliseconds(thursdayNightKST, 999);
+      
+      let fridayStartKST = addDays(sundayStartKST, -2);
+      fridayStartKST = setHours(fridayStartKST, 0);
+      fridayStartKST = setMinutes(fridayStartKST, 0);
+      fridayStartKST = setSeconds(fridayStartKST, 0);
+      fridayStartKST = setMilliseconds(fridayStartKST, 0);
+      
+      const thursdayNightUTC = fromZonedTime(thursdayNightKST, KST_TIMEZONE);
+      const fridayStartUTC = fromZonedTime(fridayStartKST, KST_TIMEZONE);
+      const sundayStartUTC = fromZonedTime(sundayStartKST, KST_TIMEZONE);
 
-      if (now <= thursdayNight) {
+      if (nowUTC <= thursdayNightUTC) {
         penaltyAmount = 0;
-      } else if (now >= fridayStart && now < sundayStart) {
+      } else if (nowUTC >= fridayStartUTC && nowUTC < sundayStartUTC) {
         penaltyAmount = 10000;
-      } else if (now >= sundayStart) {
+      } else if (nowUTC >= sundayStartUTC) {
         penaltyAmount = 25000;
       }
 
@@ -267,7 +278,7 @@ export class DatabaseStorage implements IStorage {
           await this.checkAndSuspendUser(userId);
         }
 
-        console.log(`[Cancellation] User ${userId} penalized ${penaltyAmount}원 for canceling on ${now.toLocaleString()}`);
+        console.log(`[Cancellation] User ${userId} penalized ${penaltyAmount}원 for canceling at ${nowUTC.toISOString()}`);
       }
     }
 

@@ -93,6 +93,38 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Updates (2025-10-23)
 
+### Phase 11: Automated Scheduler & Business Rules (COMPLETED)
+
+**1. Semi-Annual Warning Reset (Feature 1)**
+- Implemented `resetAllWarnings()` storage method to reset all unresolved warnings
+- Automated scheduler using node-cron: Runs January 1st & July 1st at 00:00 KST
+- All unresolved warnings are marked as resolved automatically
+- Centralized scheduler infrastructure in `server/scheduler.ts`
+
+**2. Vote Deadline Enforcement (Feature 2)**
+- Implemented `processVoteDeadlines()` to identify and penalize non-voters
+- Automated scheduler: Runs every Wednesday at 19:30 KST
+- Logic: Finds ACTIVE votes with expired deadlines, identifies non-voters among ACTIVE members
+- Penalty: 1 warning issued per non-voter, automatic suspension check applied
+- Vote status updated to CLOSED after processing
+
+**3. Presenter Deadline Auto-Check (Feature 3)**
+- Implemented `processPresenterDeadlines()` to check topic submission deadlines
+- Automated scheduler: Runs every Thursday at 23:59 KST
+- Logic: Finds presenters with NOT_SUBMITTED status and expired topicDeadline
+- Penalty: 5,000원 automatic deduction, status updated to LATE_SUBMISSION
+- Prevents duplicate penalties with penaltyApplied flag
+
+**4. Time-Based Cancellation Penalties (Feature 4)**
+- Added `updatedDate` field to voteResponses table for tracking response changes
+- Implemented `updateVoteResponse()` with graduated penalty system
+- Cancellation penalty tiers:
+  - Thursday night (23:59) or earlier: FREE (0원)
+  - Friday–Saturday: 10,000원 penalty
+  - Sunday (meeting day): 25,000원 penalty + 1 warning
+- Routes updated to allow vote response updates (YES → NO transitions)
+- Automatic warning and suspension checks for Sunday cancellations
+
 ### Phase 10: Advanced Features Implementation
 
 **1. Presenter Management System (Phase 8)**
