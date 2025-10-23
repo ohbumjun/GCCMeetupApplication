@@ -94,6 +94,7 @@ export const voteResponses = pgTable("vote_responses", {
   userId: varchar("user_id").references(() => users.id).notNull(),
   response: voteResponseEnum("response").notNull(),
   submittedDate: timestamp("submitted_date").defaultNow(),
+  updatedDate: timestamp("updated_date").defaultNow(),
 });
 
 export const attendanceRecords = pgTable("attendance_records", {
