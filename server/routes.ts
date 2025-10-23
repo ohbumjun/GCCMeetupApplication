@@ -291,6 +291,14 @@ export function registerRoutes(app: Express): Server {
           console.error("Failed to apply cancellation penalty:", penaltyError);
         }
       }
+
+      // Update consecutive absences
+      const isPresent = attendanceData.status === "PRESENT" || attendanceData.status === "LATE";
+      try {
+        await storage.updateConsecutiveAbsences(attendanceData.userId, isPresent);
+      } catch (absenceError) {
+        console.error("Failed to update consecutive absences:", absenceError);
+      }
       
       res.status(201).json(record);
     } catch (error) {

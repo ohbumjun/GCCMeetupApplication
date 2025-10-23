@@ -767,6 +767,64 @@ export class DatabaseStorage implements IStorage {
     return false;
   }
 
+  async updateConsecutiveAbsences(userId: string, isPresent: boolean): Promise<void> {
+    const user = await this.getUser(userId);
+    if (!user) return;
+
+    if (isPresent) {
+      await db
+        .update(users)
+        .set({
+          consecutiveAbsences: 0,
+          lastAttendanceDate: new Date(),
+          updatedDate: new Date(),
+        })
+        .where(eq(users.id, userId));
+    } else {
+      const newCount = (user.consecutiveAbsences || 0) + 1;
+      
+      await db
+        .update(users)
+        .set({
+          consecutiveAbsences: newCount,
+          updatedDate: new Date(),
+        })
+        .where(eq(users.id, userId));
+
+      const threshold = this.getAbsenceThreshold(user);
+      if (newCount >= threshold) {
+        await this.updateUserStatus(
+          userId,
+          "SUSPENDED",
+          `자동 제외: ${newCount}주 연속 미참석으로 인해 활동이 정지되었습니다.`
+        );
+      }
+    }
+  }
+
+  getAbsenceThreshold(user: any): number {
+    if (user.isLead) {
+      return Infinity;
+    }
+    
+    if (user.isSubLead) {
+      return 6;
+    }
+
+    switch (user.membershipLevel) {
+      case "HONOR_IV":
+        return 8;
+      case "HONOR_III":
+        return 7;
+      case "HONOR_II":
+        return 6;
+      case "HONOR_I":
+        return 5;
+      default:
+        return 4;
+    }
+  }
+
   async restoreUser(userId: string, restoredByAdminId: string): Promise<void> {
     await db.transaction(async (tx) => {
       await tx
