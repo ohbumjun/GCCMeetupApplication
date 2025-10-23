@@ -214,6 +214,39 @@ export function registerRoutes(app: Express): Server {
       });
       
       const record = await storage.createAttendanceRecord(attendanceData);
+
+      // Auto-deduct room fee for PRESENT or LATE status
+      if (attendanceData.status === "PRESENT" || attendanceData.status === "LATE") {
+        try {
+          await storage.deductFromBalance(
+            attendanceData.userId,
+            5000,
+            "ROOM_FEE",
+            `Room fee for ${new Date(attendanceData.meetingDate).toLocaleDateString()}`,
+            req.user!.id,
+            record.id
+          );
+        } catch (deductError) {
+          console.error("Failed to deduct room fee:", deductError);
+        }
+      }
+
+      // Deduct late fee if LATE status
+      if (attendanceData.status === "LATE") {
+        try {
+          await storage.deductFromBalance(
+            attendanceData.userId,
+            5000,
+            "LATE_FEE",
+            `Late fee for ${new Date(attendanceData.meetingDate).toLocaleDateString()}`,
+            req.user!.id,
+            record.id
+          );
+        } catch (deductError) {
+          console.error("Failed to deduct late fee:", deductError);
+        }
+      }
+      
       res.status(201).json(record);
     } catch (error) {
       next(error);
