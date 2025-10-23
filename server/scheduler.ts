@@ -29,7 +29,21 @@ export function setupSchedulers() {
     timezone: "Asia/Seoul"
   });
 
+  // 발제자 주제 제출 데드라인 체크 - 매주 목요일 23:59 (KST 기준)
+  cron.schedule("59 23 * * 4", async () => {
+    console.log("[Scheduler] Running presenter deadline check...");
+    try {
+      const results = await storage.processPresenterDeadlines();
+      console.log(`[Scheduler] Processed ${results.length} late presenter submissions`);
+    } catch (error) {
+      console.error("[Scheduler] Error processing presenter deadlines:", error);
+    }
+  }, {
+    timezone: "Asia/Seoul"
+  });
+
   console.log("✅ Schedulers initialized");
   console.log("  - Warning reset: Jan 1 & Jul 1 at 00:00 KST");
   console.log("  - Vote deadline check: Every Wednesday at 19:30 KST");
+  console.log("  - Presenter deadline check: Every Thursday at 23:59 KST");
 }

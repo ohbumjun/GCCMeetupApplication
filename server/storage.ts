@@ -1056,6 +1056,53 @@ export class DatabaseStorage implements IStorage {
 
     return results;
   }
+
+  async processPresenterDeadlines(): Promise<{ presenterId: string; userId: string }[]> {
+    const now = new Date();
+    const results: { presenterId: string; userId: string }[] = [];
+
+    const overduePresenters = await db
+      .select()
+      .from(presenters)
+      .where(and(
+        eq(presenters.submissionStatus, "NOT_SUBMITTED"),
+        lte(presenters.topicDeadline, now),
+        eq(presenters.penaltyApplied, false)
+      ));
+
+    for (const presenter of overduePresenters) {
+      const lateFee = 5000;
+
+      await db.transaction(async (tx) => {
+        await this.deductFromBalance(
+          presenter.userId,
+          lateFee,
+          "PRESENTER_PENALTY",
+          `발제자 주제 제출 지연 패널티: ${lateFee.toLocaleString()}원`,
+          null
+        );
+
+        await tx
+          .update(presenters)
+          .set({
+            submissionStatus: "LATE_SUBMISSION",
+            penaltyApplied: true,
+            penaltyAmount: lateFee.toString(),
+          })
+          .where(eq(presenters.id, presenter.id));
+      });
+
+      results.push({
+        presenterId: presenter.id,
+        userId: presenter.userId,
+      });
+
+      console.log(`[Presenter Deadline] Applied late penalty to user ${presenter.userId} for presenter ${presenter.id}`);
+    }
+
+    console.log(`[Presenter Deadline] Total ${results.length} late presenters penalized`);
+    return results;
+  }
 }
 
 export const storage = new DatabaseStorage();
