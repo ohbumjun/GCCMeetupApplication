@@ -16,7 +16,8 @@ import {
   X,
   Menu,
   LogOut,
-  Wallet
+  Wallet,
+  Presentation
 } from "lucide-react";
 
 const navigation = [
@@ -28,6 +29,7 @@ const navigation = [
   { name: "Rankings", href: "/rankings", icon: Trophy },
   { name: "Room Assignment", href: "/room-assignment", icon: DoorOpen },
   { name: "Topics", href: "/topics", icon: MessageSquare },
+  { name: "Presenters", href: "/presenters", icon: Presentation },
   { name: "Suggestions", href: "/suggestions", icon: Lightbulb },
   { name: "My Profile", href: "/profile", icon: User },
 ];

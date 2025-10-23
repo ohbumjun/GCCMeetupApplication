@@ -17,6 +17,7 @@ import TopicsPage from "@/pages/topics-page";
 import SuggestionsPage from "@/pages/suggestions-page";
 import ProfilePage from "@/pages/profile-page";
 import FinancialPage from "@/pages/financial-page";
+import PresentersPage from "@/pages/presenters-page";
 
 function Router() {
   return (
@@ -30,6 +31,7 @@ function Router() {
       <ProtectedRoute path="/topics" component={TopicsPage} />
       <ProtectedRoute path="/suggestions" component={SuggestionsPage} />
       <ProtectedRoute path="/financial" component={FinancialPage} />
+      <ProtectedRoute path="/presenters" component={PresentersPage} />
       <ProtectedRoute path="/profile" component={ProfilePage} />
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
