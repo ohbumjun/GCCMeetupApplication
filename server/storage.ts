@@ -1,12 +1,12 @@
 import { 
   users, votes, voteResponses, attendanceRecords, roomAssignments, 
-  meetingTopics, suggestions, financialAccounts, financialTransactions, warnings,
+  meetingTopics, suggestions, financialAccounts, financialTransactions, warnings, presenters,
   type User, type InsertUser, type Vote, type InsertVote,
   type VoteResponse, type InsertVoteResponse, type AttendanceRecord,
   type InsertAttendanceRecord, type RoomAssignment, type InsertRoomAssignment,
   type MeetingTopic, type InsertMeetingTopic, type Suggestion, type InsertSuggestion,
   type FinancialAccount, type InsertFinancialAccount, type FinancialTransaction,
-  type InsertFinancialTransaction, type Warning, type InsertWarning
+  type InsertFinancialTransaction, type Warning, type InsertWarning, type Presenter, type InsertPresenter
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, gte, lte, sql, count, isNotNull } from "drizzle-orm";
@@ -96,6 +96,15 @@ export interface IStorage {
   getAllActiveWarnings(): Promise<Warning[]>;
   resolveWarning(warningId: string, resolvedByAdminId: string): Promise<Warning>;
   checkLowBalanceAndWarn(userId: string, currentBalance: number, issuedByAdminId?: string): Promise<Warning | null>;
+
+  // Presenter methods
+  createPresenter(presenter: InsertPresenter): Promise<Presenter>;
+  getPresentersByMeetingDate(meetingDate: Date): Promise<Presenter[]>;
+  getPresenterById(id: string): Promise<Presenter | undefined>;
+  updatePresenterSubmissionStatus(id: string, status: "NOT_SUBMITTED" | "TOPIC_SUBMITTED" | "MATERIAL_SUBMITTED" | "LATE_SUBMISSION", topicTitle?: string): Promise<Presenter>;
+  checkPresenterDeadlines(): Promise<void>;
+  getUpcomingPresenters(): Promise<Presenter[]>;
+  applyPresenterPenalty(presenterId: string, amount: number, processedByAdminId: string): Promise<void>;
 
   sessionStore: any;
 }
@@ -780,6 +789,120 @@ export class DatabaseStorage implements IStorage {
           updatedDate: new Date(),
         })
         .where(eq(users.id, userId));
+    });
+  }
+
+  async createPresenter(presenter: InsertPresenter): Promise<Presenter> {
+    const [newPresenter] = await db
+      .insert(presenters)
+      .values(presenter)
+      .returning();
+    return newPresenter;
+  }
+
+  async getPresentersByMeetingDate(meetingDate: Date): Promise<Presenter[]> {
+    const startOfDay = new Date(meetingDate.getFullYear(), meetingDate.getMonth(), meetingDate.getDate());
+    const endOfDay = new Date(meetingDate.getFullYear(), meetingDate.getMonth(), meetingDate.getDate() + 1);
+    
+    return await db
+      .select()
+      .from(presenters)
+      .where(and(
+        gte(presenters.meetingDate, startOfDay),
+        lte(presenters.meetingDate, endOfDay)
+      ));
+  }
+
+  async getPresenterById(id: string): Promise<Presenter | undefined> {
+    const [presenter] = await db
+      .select()
+      .from(presenters)
+      .where(eq(presenters.id, id));
+    return presenter || undefined;
+  }
+
+  async updatePresenterSubmissionStatus(
+    id: string, 
+    status: "NOT_SUBMITTED" | "TOPIC_SUBMITTED" | "MATERIAL_SUBMITTED" | "LATE_SUBMISSION",
+    topicTitle?: string
+  ): Promise<Presenter> {
+    const now = new Date();
+    const updates: any = {
+      submissionStatus: status,
+    };
+
+    if (status === "TOPIC_SUBMITTED" && topicTitle) {
+      updates.topicTitle = topicTitle;
+      updates.topicSubmittedDate = now;
+    } else if (status === "MATERIAL_SUBMITTED") {
+      updates.materialSubmittedDate = now;
+    }
+
+    const [updatedPresenter] = await db
+      .update(presenters)
+      .set(updates)
+      .where(eq(presenters.id, id))
+      .returning();
+    
+    return updatedPresenter;
+  }
+
+  async checkPresenterDeadlines(): Promise<void> {
+    const now = new Date();
+    
+    const overduePresenters = await db
+      .select()
+      .from(presenters)
+      .where(and(
+        lte(presenters.topicDeadline, now),
+        eq(presenters.submissionStatus, "NOT_SUBMITTED"),
+        eq(presenters.penaltyApplied, false)
+      ));
+
+    for (const presenter of overduePresenters) {
+      await db
+        .update(presenters)
+        .set({
+          submissionStatus: "LATE_SUBMISSION",
+          penaltyApplied: true,
+          penaltyAmount: "5000.00",
+        })
+        .where(eq(presenters.id, presenter.id));
+    }
+  }
+
+  async getUpcomingPresenters(): Promise<Presenter[]> {
+    const now = new Date();
+    
+    return await db
+      .select()
+      .from(presenters)
+      .where(gte(presenters.meetingDate, now))
+      .orderBy(presenters.meetingDate);
+  }
+
+  async applyPresenterPenalty(presenterId: string, amount: number, processedByAdminId: string): Promise<void> {
+    const presenter = await this.getPresenterById(presenterId);
+    if (!presenter) {
+      throw new Error("Presenter not found");
+    }
+
+    await db.transaction(async (tx) => {
+      await this.deductFromBalance(
+        presenter.userId,
+        amount,
+        "PRESENTER_PENALTY",
+        `발제자 패널티: ${amount.toLocaleString()}원`,
+        processedByAdminId
+      );
+
+      await tx
+        .update(presenters)
+        .set({
+          penaltyApplied: true,
+          penaltyAmount: amount.toString(),
+        })
+        .where(eq(presenters.id, presenterId));
     });
   }
 }
