@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth, hashPassword } from "./auth";
 import { storage } from "./storage";
-import { insertVoteSchema, insertVoteResponseSchema, insertAttendanceRecordSchema, insertRoomAssignmentSchema, insertMeetingTopicSchema, insertSuggestionSchema } from "@shared/schema";
+import { insertVoteSchema, insertVoteResponseSchema, insertAttendanceRecordSchema, insertRoomAssignmentSchema, insertMeetingTopicSchema, insertSuggestionSchema, insertPresenterSchema } from "@shared/schema";
 import { z } from "zod";
 
 export function registerRoutes(app: Express): Server {
@@ -609,6 +609,105 @@ export function registerRoutes(app: Express): Server {
       
       const warning = await storage.resolveWarning(warningId, req.user!.id);
       res.json(warning);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Presenter management
+  app.post("/api/presenters", requireAdmin, async (req, res, next) => {
+    try {
+      const presenterData = insertPresenterSchema.parse({
+        ...req.body,
+        assignedByAdminId: req.user!.id,
+        submissionStatus: "NOT_SUBMITTED",
+        penaltyApplied: false,
+        penaltyAmount: "0.00",
+      });
+      
+      const presenter = await storage.createPresenter(presenterData);
+      res.status(201).json(presenter);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/presenters/upcoming", requireAuth, async (req, res, next) => {
+    try {
+      const presenters = await storage.getUpcomingPresenters();
+      res.json(presenters);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/presenters/meeting/:date", requireAuth, async (req, res, next) => {
+    try {
+      const meetingDate = new Date(req.params.date);
+      const presenters = await storage.getPresentersByMeetingDate(meetingDate);
+      res.json(presenters);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/presenters/:id/submit-topic", requireAuth, async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const { topicTitle } = req.body;
+      
+      const presenter = await storage.getPresenterById(id);
+      if (!presenter) {
+        return res.status(404).json({ message: "Presenter not found" });
+      }
+
+      if (presenter.userId !== req.user!.id && req.user!.role !== "ADMIN") {
+        return res.status(403).json({ message: "You can only submit your own topics" });
+      }
+
+      const updatedPresenter = await storage.updatePresenterSubmissionStatus(
+        id,
+        "TOPIC_SUBMITTED",
+        topicTitle
+      );
+      
+      res.json(updatedPresenter);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/presenters/:id/submit-material", requireAuth, async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      
+      const presenter = await storage.getPresenterById(id);
+      if (!presenter) {
+        return res.status(404).json({ message: "Presenter not found" });
+      }
+
+      if (presenter.userId !== req.user!.id && req.user!.role !== "ADMIN") {
+        return res.status(403).json({ message: "You can only submit your own materials" });
+      }
+
+      const updatedPresenter = await storage.updatePresenterSubmissionStatus(
+        id,
+        "MATERIAL_SUBMITTED"
+      );
+      
+      res.json(updatedPresenter);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/presenters/:id/apply-penalty", requireAdmin, async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const { amount } = req.body;
+      
+      await storage.applyPresenterPenalty(id, amount, req.user!.id);
+      res.json({ message: "Penalty applied successfully" });
     } catch (error) {
       next(error);
     }
