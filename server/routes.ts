@@ -116,6 +116,17 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  app.patch("/api/users/:id/restore", requireAdmin, async (req, res, next) => {
+    try {
+      const userId = req.params.id;
+      
+      await storage.restoreUser(userId, req.user!.id);
+      res.json({ message: "User restored successfully" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // Voting system
   app.get("/api/votes", requireAuth, async (req, res, next) => {
     try {
@@ -141,6 +152,7 @@ export function registerRoutes(app: Express): Server {
       const processedBody = {
         ...req.body,
         voteDate: new Date(req.body.voteDate),
+        meetingDate: new Date(req.body.meetingDate),
         deadlineDate: new Date(req.body.deadlineDate),
       };
       
@@ -244,6 +256,39 @@ export function registerRoutes(app: Express): Server {
           );
         } catch (deductError) {
           console.error("Failed to deduct late fee:", deductError);
+        }
+      }
+
+      // Apply cancellation penalty if ABSENT after voting YES
+      if (attendanceData.status === "ABSENT") {
+        try {
+          const voteResponse = await storage.getVoteResponseByUserAndDate(
+            attendanceData.userId,
+            new Date(attendanceData.meetingDate)
+          );
+
+          if (voteResponse && voteResponse.response === "YES") {
+            await storage.deductFromBalance(
+              attendanceData.userId,
+              10000,
+              "CANCELLATION_PENALTY",
+              `Cancellation penalty for ${new Date(attendanceData.meetingDate).toLocaleDateString()} (voted YES but absent)`,
+              req.user!.id,
+              record.id
+            );
+
+            await storage.createWarning({
+              userId: attendanceData.userId,
+              warningType: "CANCELLATION_PENALTY",
+              reason: `Voted YES but absent on ${new Date(attendanceData.meetingDate).toLocaleDateString()}. 10,000원 penalty applied.`,
+              issuedByAdminId: req.user!.id,
+              isResolved: false,
+            });
+
+            await storage.checkAndSuspendUser(attendanceData.userId);
+          }
+        } catch (penaltyError) {
+          console.error("Failed to apply cancellation penalty:", penaltyError);
         }
       }
       
@@ -549,6 +594,8 @@ export function registerRoutes(app: Express): Server {
         issuedByAdminId: req.user!.id,
         isResolved: false,
       });
+
+      await storage.checkAndSuspendUser(data.userId);
 
       res.status(201).json(warning);
     } catch (error) {

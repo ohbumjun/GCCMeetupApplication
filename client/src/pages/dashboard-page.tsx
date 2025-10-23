@@ -7,6 +7,7 @@ import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { MemberOverview } from "@/components/dashboard/member-overview";
 import { UpcomingEvents } from "@/components/dashboard/upcoming-events";
 import { Announcements } from "@/components/dashboard/announcements";
+import { WarningAlerts } from "@/components/dashboard/warning-alerts";
 import { useQuery } from "@tanstack/react-query";
 import { Users, CalendarCheck, Vote, AlertTriangle } from "lucide-react";
 
@@ -68,6 +69,9 @@ export default function DashboardPage() {
               data-testid="stat-consecutive-absences"
             />
           </div>
+
+          {/* Warning Alerts */}
+          <WarningAlerts />
 
           {/* Quick Actions & Current Vote */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

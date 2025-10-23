@@ -210,6 +210,30 @@ export class DatabaseStorage implements IStorage {
     return response || undefined;
   }
 
+  async getVoteResponseByUserAndDate(userId: string, meetingDate: Date): Promise<VoteResponse | undefined> {
+    const startOfDay = new Date(meetingDate.getFullYear(), meetingDate.getMonth(), meetingDate.getDate());
+    const endOfDay = new Date(meetingDate.getFullYear(), meetingDate.getMonth(), meetingDate.getDate() + 1);
+    
+    const [response] = await db
+      .select({
+        id: voteResponses.id,
+        voteId: voteResponses.voteId,
+        userId: voteResponses.userId,
+        response: voteResponses.response,
+        submittedDate: voteResponses.submittedDate,
+      })
+      .from(voteResponses)
+      .innerJoin(votes, eq(voteResponses.voteId, votes.id))
+      .where(and(
+        eq(voteResponses.userId, userId),
+        gte(votes.meetingDate, startOfDay),
+        lte(votes.meetingDate, endOfDay)
+      ))
+      .limit(1);
+    
+    return response || undefined;
+  }
+
   async createAttendanceRecord(record: InsertAttendanceRecord): Promise<AttendanceRecord> {
     const [newRecord] = await db
       .insert(attendanceRecords)
@@ -706,6 +730,57 @@ export class DatabaseStorage implements IStorage {
     }
 
     return null;
+  }
+
+  async updateUserStatus(userId: string, status: string, reason?: string): Promise<void> {
+    await db
+      .update(users)
+      .set({
+        status: status as any,
+        inactiveReason: reason || null,
+        updatedDate: new Date(),
+      })
+      .where(eq(users.id, userId));
+  }
+
+  async checkAndSuspendUser(userId: string): Promise<boolean> {
+    const unresolvedCount = await this.getUnresolvedWarningCount(userId);
+    
+    if (unresolvedCount >= 3) {
+      await this.updateUserStatus(
+        userId,
+        "SUSPENDED",
+        `자동 제외: ${unresolvedCount}개의 미해결 경고로 인해 활동이 정지되었습니다.`
+      );
+      return true;
+    }
+    
+    return false;
+  }
+
+  async restoreUser(userId: string, restoredByAdminId: string): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx
+        .update(warnings)
+        .set({
+          isResolved: true,
+          resolvedDate: new Date(),
+          resolvedByAdminId: restoredByAdminId,
+        })
+        .where(and(
+          eq(warnings.userId, userId),
+          eq(warnings.isResolved, false)
+        ));
+
+      await tx
+        .update(users)
+        .set({
+          status: "ACTIVE",
+          inactiveReason: null,
+          updatedDate: new Date(),
+        })
+        .where(eq(users.id, userId));
+    });
   }
 }
 

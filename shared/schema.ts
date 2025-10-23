@@ -18,7 +18,7 @@ export const roleEnum = pgEnum("role", ["USER", "ADMIN"]);
 
 export const voteStatusEnum = pgEnum("vote_status", ["ACTIVE", "CLOSED"]);
 
-export const voteResponseEnum = pgEnum("vote_response", ["PRESENT", "ABSENT"]);
+export const voteResponseEnum = pgEnum("vote_response", ["YES", "NO"]);
 
 export const attendanceStatusEnum = pgEnum("attendance_status", ["PRESENT", "ABSENT", "LATE", "NO_SHOW"]);
 
@@ -72,6 +72,7 @@ export const votes = pgTable("votes", {
   title: text("title").notNull(),
   description: text("description"),
   voteDate: timestamp("vote_date").notNull(),
+  meetingDate: timestamp("meeting_date").notNull(),
   deadlineDate: timestamp("deadline_date").notNull(),
   createdByAdminId: varchar("created_by_admin_id").references(() => users.id),
   status: voteStatusEnum("status").default("ACTIVE"),
