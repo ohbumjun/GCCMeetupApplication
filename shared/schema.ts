@@ -50,6 +50,12 @@ export const presenterStatusEnum = pgEnum("presenter_status", [
   "LATE_SUBMISSION"
 ]);
 
+export const pendingAttendanceStatusEnum = pgEnum("pending_attendance_status", [
+  "PENDING",
+  "APPROVED",
+  "REJECTED"
+]);
+
 // Tables
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -204,6 +210,24 @@ export const locations = pgTable("locations", {
   isActive: boolean("is_active").default(true),
   createdDate: timestamp("created_date").defaultNow(),
   updatedDate: timestamp("updated_date").defaultNow(),
+});
+
+export const pendingAttendanceRecords = pgTable("pending_attendance_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  roomAssignmentId: varchar("room_assignment_id").references(() => roomAssignments.id).notNull(),
+  submittedByLeaderId: varchar("submitted_by_leader_id").references(() => users.id).notNull(),
+  meetingDate: timestamp("meeting_date").notNull(),
+  attendanceData: json("attendance_data").$type<Array<{
+    userId: string;
+    status: string;
+    arrivalTime?: string;
+    notes?: string;
+  }>>().notNull(),
+  status: pendingAttendanceStatusEnum("status").default("PENDING"),
+  submittedDate: timestamp("submitted_date").defaultNow(),
+  reviewedByAdminId: varchar("reviewed_by_admin_id").references(() => users.id),
+  reviewedDate: timestamp("reviewed_date"),
+  adminNotes: text("admin_notes"),
 });
 
 // Relations
@@ -419,6 +443,12 @@ export const insertLocationSchema = createInsertSchema(locations).omit({
   updatedDate: true,
 });
 
+export const insertPendingAttendanceRecordSchema = createInsertSchema(pendingAttendanceRecords).omit({
+  id: true,
+  submittedDate: true,
+  reviewedDate: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -444,3 +474,5 @@ export type Presenter = typeof presenters.$inferSelect;
 export type InsertPresenter = z.infer<typeof insertPresenterSchema>;
 export type Location = typeof locations.$inferSelect;
 export type InsertLocation = z.infer<typeof insertLocationSchema>;
+export type PendingAttendanceRecord = typeof pendingAttendanceRecords.$inferSelect;
+export type InsertPendingAttendanceRecord = z.infer<typeof insertPendingAttendanceRecordSchema>;

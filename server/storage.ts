@@ -1,13 +1,14 @@
 import { 
   users, votes, voteResponses, attendanceRecords, roomAssignments, 
   meetingTopics, suggestions, financialAccounts, financialTransactions, warnings, presenters, locations,
+  pendingAttendanceRecords,
   type User, type InsertUser, type Vote, type InsertVote,
   type VoteResponse, type InsertVoteResponse, type AttendanceRecord,
   type InsertAttendanceRecord, type RoomAssignment, type InsertRoomAssignment,
   type MeetingTopic, type InsertMeetingTopic, type Suggestion, type InsertSuggestion,
   type FinancialAccount, type InsertFinancialAccount, type FinancialTransaction,
   type InsertFinancialTransaction, type Warning, type InsertWarning, type Presenter, type InsertPresenter,
-  type Location, type InsertLocation
+  type Location, type InsertLocation, type PendingAttendanceRecord, type InsertPendingAttendanceRecord
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, gte, lte, sql, count, isNotNull } from "drizzle-orm";
@@ -51,6 +52,18 @@ export interface IStorage {
   createRoomAssignment(assignment: InsertRoomAssignment): Promise<RoomAssignment>;
   getRoomAssignmentsByDate(date: Date): Promise<RoomAssignment[]>;
   getRoomAssignmentHistory(): Promise<RoomAssignment[]>;
+  getRecentRoomPairings(weeksBack: number): Promise<Map<string, Set<string>>>;
+  autoAssignRooms(params: {
+    meetingDate: Date;
+    locationId: string;
+    numberOfRooms: number;
+    weeksToAvoid: number;
+  }): Promise<Array<{
+    roomNumber: string;
+    roomName: string;
+    leaderId: string;
+    assignedMembers: string[];
+  }>>;
   
   // Meeting topic methods
   createMeetingTopic(topic: InsertMeetingTopic): Promise<MeetingTopic>;
@@ -120,6 +133,16 @@ export interface IStorage {
   // Multi-location business logic
   checkUserWeeklyVoteLimit(userId: string, voteId: string): Promise<boolean>;
   isUserRoomLeader(userId: string, roomAssignmentId: string): Promise<boolean>;
+  
+  // Pending attendance methods (Leader attendance submissions)
+  createPendingAttendance(record: InsertPendingAttendanceRecord): Promise<PendingAttendanceRecord>;
+  getPendingAttendanceByLeader(leaderId: string): Promise<PendingAttendanceRecord[]>;
+  getAllPendingAttendances(): Promise<PendingAttendanceRecord[]>;
+  getPendingAttendanceById(id: string): Promise<PendingAttendanceRecord | undefined>;
+  updatePendingAttendance(id: string, updates: Partial<InsertPendingAttendanceRecord>): Promise<PendingAttendanceRecord>;
+  deletePendingAttendance(id: string): Promise<void>;
+  approvePendingAttendance(id: string, adminId: string): Promise<void>;
+  rejectPendingAttendance(id: string, adminId: string, reason: string): Promise<void>;
 
   sessionStore: any;
 }
@@ -454,6 +477,143 @@ export class DatabaseStorage implements IStorage {
       console.error('Error in getRoomAssignmentHistory:', error);
       return [];
     }
+  }
+
+  async getRecentRoomPairings(weeksBack: number): Promise<Map<string, Set<string>>> {
+    const weeksAgo = new Date();
+    weeksAgo.setDate(weeksAgo.getDate() - (weeksBack * 7));
+    
+    const assignments = await db
+      .select()
+      .from(roomAssignments)
+      .where(and(
+        gte(roomAssignments.meetingDate, weeksAgo),
+        lte(roomAssignments.meetingDate, new Date())
+      ));
+    
+    const pairings = new Map<string, Set<string>>();
+    
+    for (const assignment of assignments) {
+      const members = assignment.assignedMembers as string[];
+      if (!members || members.length === 0) continue;
+      
+      for (const memberId of members) {
+        if (!pairings.has(memberId)) {
+          pairings.set(memberId, new Set<string>());
+        }
+        
+        for (const otherMemberId of members) {
+          if (memberId !== otherMemberId) {
+            pairings.get(memberId)!.add(otherMemberId);
+          }
+        }
+      }
+    }
+    
+    return pairings;
+  }
+
+  async autoAssignRooms(params: {
+    meetingDate: Date;
+    locationId: string;
+    numberOfRooms: number;
+    weeksToAvoid: number;
+  }): Promise<Array<{
+    roomNumber: string;
+    roomName: string;
+    leaderId: string;
+    assignedMembers: string[];
+  }>> {
+    const { meetingDate, locationId, numberOfRooms, weeksToAvoid } = params;
+    
+    const votesOnDate = await db
+      .select()
+      .from(votes)
+      .where(and(
+        eq(votes.meetingDate, meetingDate),
+        eq(votes.locationId, locationId)
+      ));
+    
+    if (votesOnDate.length === 0) {
+      throw new Error("No vote found for this date and location");
+    }
+    
+    const vote = votesOnDate[0];
+    
+    const responses = await db
+      .select({
+        userId: voteResponses.userId,
+        response: voteResponses.response,
+        user: users,
+      })
+      .from(voteResponses)
+      .innerJoin(users, eq(voteResponses.userId, users.id))
+      .where(and(
+        eq(voteResponses.voteId, vote.id),
+        eq(voteResponses.response, "YES"),
+        eq(users.status, "ACTIVE")
+      ));
+    
+    const attendingMembers = responses.map(r => r.user);
+    
+    if (attendingMembers.length < numberOfRooms) {
+      throw new Error(`Not enough members (${attendingMembers.length}) for ${numberOfRooms} rooms`);
+    }
+    
+    const recentPairings = await this.getRecentRoomPairings(weeksToAvoid);
+    
+    const honorOrder = { HONOR_IV: 4, HONOR_III: 3, HONOR_II: 2, HONOR_I: 1 };
+    const sortedMembers = [...attendingMembers].sort((a, b) => {
+      const aHonor = honorOrder[a.membershipLevel || "HONOR_I"] || 1;
+      const bHonor = honorOrder[b.membershipLevel || "HONOR_I"] || 1;
+      return bHonor - aHonor;
+    });
+    
+    const leaders = sortedMembers.slice(0, numberOfRooms);
+    const remainingMembers = sortedMembers.slice(numberOfRooms);
+    
+    const rooms: Array<{
+      roomNumber: string;
+      roomName: string;
+      leaderId: string;
+      assignedMembers: string[];
+    }> = leaders.map((leader, index) => ({
+      roomNumber: `${index + 1}`,
+      roomName: `Room ${index + 1}`,
+      leaderId: leader.id,
+      assignedMembers: [leader.id],
+    }));
+    
+    for (let i = remainingMembers.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [remainingMembers[i], remainingMembers[j]] = [remainingMembers[j], remainingMembers[i]];
+    }
+    
+    for (const member of remainingMembers) {
+      let bestRoomIndex = 0;
+      let minPairings = Infinity;
+      
+      for (let roomIndex = 0; roomIndex < rooms.length; roomIndex++) {
+        const room = rooms[roomIndex];
+        const memberPairings = recentPairings.get(member.id) || new Set();
+        
+        let pairingsCount = 0;
+        for (const roomMemberId of room.assignedMembers) {
+          if (memberPairings.has(roomMemberId)) {
+            pairingsCount++;
+          }
+        }
+        
+        if (pairingsCount < minPairings) {
+          minPairings = pairingsCount;
+          bestRoomIndex = roomIndex;
+        }
+      }
+      
+      rooms[bestRoomIndex].assignedMembers.push(member.id);
+    }
+    
+    return rooms;
   }
 
   async createMeetingTopic(topic: InsertMeetingTopic): Promise<MeetingTopic> {
@@ -1310,6 +1470,187 @@ export class DatabaseStorage implements IStorage {
     }
 
     return assignment.leaderId === userId;
+  }
+
+  async createPendingAttendance(record: InsertPendingAttendanceRecord): Promise<PendingAttendanceRecord> {
+    const [newRecord] = await db
+      .insert(pendingAttendanceRecords)
+      .values(record)
+      .returning();
+    return newRecord;
+  }
+
+  async getPendingAttendanceByLeader(leaderId: string): Promise<PendingAttendanceRecord[]> {
+    return await db
+      .select()
+      .from(pendingAttendanceRecords)
+      .where(eq(pendingAttendanceRecords.submittedByLeaderId, leaderId))
+      .orderBy(desc(pendingAttendanceRecords.submittedDate));
+  }
+
+  async getAllPendingAttendances(): Promise<PendingAttendanceRecord[]> {
+    return await db
+      .select()
+      .from(pendingAttendanceRecords)
+      .orderBy(desc(pendingAttendanceRecords.submittedDate));
+  }
+
+  async getPendingAttendanceById(id: string): Promise<PendingAttendanceRecord | undefined> {
+    const [record] = await db
+      .select()
+      .from(pendingAttendanceRecords)
+      .where(eq(pendingAttendanceRecords.id, id));
+    return record;
+  }
+
+  async updatePendingAttendance(id: string, updates: Partial<InsertPendingAttendanceRecord>): Promise<PendingAttendanceRecord> {
+    const [updated] = await db
+      .update(pendingAttendanceRecords)
+      .set(updates)
+      .where(eq(pendingAttendanceRecords.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deletePendingAttendance(id: string): Promise<void> {
+    await db
+      .delete(pendingAttendanceRecords)
+      .where(eq(pendingAttendanceRecords.id, id));
+  }
+
+  async approvePendingAttendance(id: string, adminId: string): Promise<void> {
+    const pending = await this.getPendingAttendanceById(id);
+    if (!pending) {
+      throw new Error("Pending attendance record not found");
+    }
+
+    const attendanceData = pending.attendanceData as Array<{
+      userId: string;
+      status: string;
+      arrivalTime?: string;
+      notes?: string;
+    }>;
+
+    // Get room assignment to find locationId
+    const roomAssignment = await db
+      .select()
+      .from(roomAssignments)
+      .where(eq(roomAssignments.id, pending.roomAssignmentId))
+      .limit(1);
+
+    const locationId = roomAssignment[0]?.locationId || null;
+
+    for (const attendance of attendanceData) {
+      // Create attendance record
+      const record = await this.createAttendanceRecord({
+        userId: attendance.userId,
+        meetingDate: pending.meetingDate,
+        status: attendance.status as any,
+        arrivalTime: attendance.arrivalTime ? new Date(attendance.arrivalTime) : undefined,
+        notes: attendance.notes,
+        updatedByAdminId: adminId,
+        locationId: locationId,
+      });
+
+      // Apply business rules based on status
+      if (attendance.status === "PRESENT" || attendance.status === "LATE") {
+        // Deduct room fee
+        try {
+          await this.deductFromBalance(
+            attendance.userId,
+            5000,
+            "ROOM_FEE",
+            `Room fee for ${pending.meetingDate.toLocaleDateString()}`,
+            adminId,
+            record.id
+          );
+        } catch (error) {
+          console.error(`Failed to deduct room fee for user ${attendance.userId}:`, error);
+        }
+      }
+
+      if (attendance.status === "LATE" && attendance.arrivalTime) {
+        // Calculate and deduct late fee
+        try {
+          const lateFee = this.calculateLateFee(new Date(attendance.arrivalTime));
+          if (lateFee > 0) {
+            await this.deductFromBalance(
+              attendance.userId,
+              lateFee,
+              "LATE_FEE",
+              `Late fee for ${pending.meetingDate.toLocaleDateString()}`,
+              adminId,
+              record.id
+            );
+          }
+        } catch (error) {
+          console.error(`Failed to deduct late fee for user ${attendance.userId}:`, error);
+        }
+      }
+
+      // Apply cancellation penalty if ABSENT after voting YES
+      if (attendance.status === "ABSENT") {
+        try {
+          const voteResponse = await this.getVoteResponseByUserAndDate(
+            attendance.userId,
+            pending.meetingDate
+          );
+
+          if (voteResponse && voteResponse.response === "YES") {
+            await this.deductFromBalance(
+              attendance.userId,
+              10000,
+              "CANCELLATION_PENALTY",
+              `Cancellation penalty for ${pending.meetingDate.toLocaleDateString()} (voted YES but absent)`,
+              adminId,
+              record.id
+            );
+
+            await this.createWarning({
+              userId: attendance.userId,
+              warningType: "CANCELLATION_PENALTY",
+              reason: `Voted YES but absent on ${pending.meetingDate.toLocaleDateString()}. 10,000원 penalty applied.`,
+              issuedByAdminId: adminId,
+              isResolved: false,
+            });
+
+            await this.checkAndSuspendUser(attendance.userId);
+          }
+        } catch (error) {
+          console.error(`Failed to apply cancellation penalty for user ${attendance.userId}:`, error);
+        }
+      }
+
+      // Update consecutive absences
+      const isPresent = attendance.status === "PRESENT" || attendance.status === "LATE";
+      try {
+        await this.updateConsecutiveAbsences(attendance.userId, isPresent);
+      } catch (error) {
+        console.error(`Failed to update consecutive absences for user ${attendance.userId}:`, error);
+      }
+    }
+
+    // Mark pending record as approved
+    await db
+      .update(pendingAttendanceRecords)
+      .set({
+        status: "APPROVED",
+        reviewedByAdminId: adminId,
+        reviewedDate: new Date(),
+      })
+      .where(eq(pendingAttendanceRecords.id, id));
+  }
+
+  async rejectPendingAttendance(id: string, adminId: string, reason: string): Promise<void> {
+    await db
+      .update(pendingAttendanceRecords)
+      .set({
+        status: "REJECTED",
+        reviewedByAdminId: adminId,
+        reviewedDate: new Date(),
+        adminNotes: reason,
+      })
+      .where(eq(pendingAttendanceRecords.id, id));
   }
 }
 

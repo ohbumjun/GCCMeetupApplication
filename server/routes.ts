@@ -404,6 +404,45 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  app.post("/api/room-assignments/auto-assign", requireAdmin, async (req, res, next) => {
+    try {
+      const { meetingDate, locationId, numberOfRooms, weeksToAvoid } = req.body;
+      
+      if (!meetingDate || !locationId) {
+        return res.status(400).json({ message: "meetingDate and locationId are required" });
+      }
+      
+      // Validate and parse meetingDate
+      const parsedDate = new Date(meetingDate);
+      if (isNaN(parsedDate.getTime())) {
+        return res.status(400).json({ message: "Invalid meetingDate format" });
+      }
+      
+      // Validate numberOfRooms
+      const parsedNumberOfRooms = parseInt(numberOfRooms);
+      if (isNaN(parsedNumberOfRooms) || parsedNumberOfRooms < 1 || parsedNumberOfRooms > 20) {
+        return res.status(400).json({ message: "numberOfRooms must be between 1 and 20" });
+      }
+      
+      // Validate weeksToAvoid
+      const parsedWeeksToAvoid = parseInt(weeksToAvoid) || 4;
+      if (parsedWeeksToAvoid < 0 || parsedWeeksToAvoid > 12) {
+        return res.status(400).json({ message: "weeksToAvoid must be between 0 and 12" });
+      }
+      
+      const result = await storage.autoAssignRooms({
+        meetingDate: parsedDate,
+        locationId,
+        numberOfRooms: parsedNumberOfRooms,
+        weeksToAvoid: parsedWeeksToAvoid,
+      });
+      
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
 
   // Meeting topics
   app.get("/api/topics", requireAuth, async (req, res, next) => {
@@ -817,6 +856,122 @@ export function registerRoutes(app: Express): Server {
     try {
       await storage.deleteLocation(req.params.id);
       res.json({ message: "Location deactivated successfully" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Leader attendance submissions
+  app.post("/api/leader-attendance", requireAuth, async (req, res, next) => {
+    try {
+      const processedBody = {
+        ...req.body,
+        meetingDate: new Date(req.body.meetingDate),
+        submittedByLeaderId: req.user!.id,
+        status: "PENDING",
+      };
+      
+      const validatedData = insertPendingAttendanceRecordSchema.parse(processedBody);
+      const pendingRecord = await storage.createPendingAttendance(validatedData);
+      res.status(201).json(pendingRecord);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/leader-attendance", requireAuth, async (req, res, next) => {
+    try {
+      const records = await storage.getPendingAttendanceByLeader(req.user!.id);
+      res.json(records);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/leader-attendance/:id", requireAuth, async (req, res, next) => {
+    try {
+      const record = await storage.getPendingAttendanceById(req.params.id);
+      if (!record) {
+        return res.status(404).json({ message: "Attendance record not found" });
+      }
+      if (record.submittedByLeaderId !== req.user!.id && req.user!.role !== "ADMIN") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      res.json(record);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/leader-attendance/:id", requireAuth, async (req, res, next) => {
+    try {
+      const record = await storage.getPendingAttendanceById(req.params.id);
+      if (!record) {
+        return res.status(404).json({ message: "Attendance record not found" });
+      }
+      if (record.submittedByLeaderId !== req.user!.id) {
+        return res.status(403).json({ message: "You can only edit your own submissions" });
+      }
+      if (record.status !== "PENDING") {
+        return res.status(400).json({ message: "Cannot edit reviewed submissions" });
+      }
+      
+      // Only allow editing attendanceData field, prevent tampering with status, submittedByLeaderId, etc.
+      const editableFields = insertPendingAttendanceRecordSchema.pick({ 
+        attendanceData: true 
+      }).parse(req.body);
+      
+      const updated = await storage.updatePendingAttendance(req.params.id, editableFields);
+      res.json(updated);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/leader-attendance/:id", requireAuth, async (req, res, next) => {
+    try {
+      const record = await storage.getPendingAttendanceById(req.params.id);
+      if (!record) {
+        return res.status(404).json({ message: "Attendance record not found" });
+      }
+      if (record.submittedByLeaderId !== req.user!.id) {
+        return res.status(403).json({ message: "You can only delete your own submissions" });
+      }
+      if (record.status !== "PENDING") {
+        return res.status(400).json({ message: "Cannot delete reviewed submissions" });
+      }
+      
+      await storage.deletePendingAttendance(req.params.id);
+      res.json({ message: "Attendance submission deleted" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Admin attendance approval
+  app.get("/api/admin/pending-attendance", requireAdmin, async (req, res, next) => {
+    try {
+      const records = await storage.getAllPendingAttendances();
+      res.json(records);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/admin/approve-attendance/:id", requireAdmin, async (req, res, next) => {
+    try {
+      await storage.approvePendingAttendance(req.params.id, req.user!.id);
+      res.json({ message: "Attendance approved successfully" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/admin/reject-attendance/:id", requireAdmin, async (req, res, next) => {
+    try {
+      const { reason } = req.body;
+      await storage.rejectPendingAttendance(req.params.id, req.user!.id, reason);
+      res.json({ message: "Attendance rejected" });
     } catch (error) {
       next(error);
     }
