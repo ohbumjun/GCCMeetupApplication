@@ -14,7 +14,7 @@ import { eq, desc, and, gte, lte, sql, count, isNotNull } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
-import { toZonedTime, fromZonedTime, utcToZonedTime, zonedTimeToUtc } from 'date-fns-tz';
+import { toZonedTime, fromZonedTime } from 'date-fns-tz';
 import { addDays, setHours, setMinutes, setSeconds, setMilliseconds, startOfWeek, endOfWeek } from 'date-fns';
 
 const PostgresSessionStore = connectPg(session);
@@ -1268,11 +1268,11 @@ export class DatabaseStorage implements IStorage {
 
     const SEOUL_TZ = 'Asia/Seoul';
     const meetingDateUTC = new Date(vote.meetingDate);
-    const meetingDateKST = utcToZonedTime(meetingDateUTC, SEOUL_TZ);
+    const meetingDateKST = toZonedTime(meetingDateUTC, SEOUL_TZ);
     const weekStartKST = startOfWeek(meetingDateKST, { weekStartsOn: 0 });
     const weekEndKST = endOfWeek(meetingDateKST, { weekStartsOn: 0 });
-    const weekStartUTC = zonedTimeToUtc(weekStartKST, SEOUL_TZ);
-    const weekEndUTC = zonedTimeToUtc(weekEndKST, SEOUL_TZ);
+    const weekStartUTC = fromZonedTime(weekStartKST, SEOUL_TZ);
+    const weekEndUTC = fromZonedTime(weekEndKST, SEOUL_TZ);
 
     const userVotesThisWeek = await db
       .select({
