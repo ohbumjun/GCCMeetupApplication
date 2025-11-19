@@ -91,6 +91,67 @@ Preferred communication style: Simple, everyday language.
 - **clsx**: Conditional CSS class composition
 - **connect-pg-simple**: PostgreSQL session store
 
+## Recent Updates (2025-11-19)
+
+### Phase 12: Multi-Location Support (COMPLETED)
+
+The system has been upgraded from single-location (Sinchon) to multi-location support where members can select one location per week with varying meeting times and vote deadlines per location.
+
+**1. Database Schema Expansion**
+- Created `locations` table with fields: id, name, address, meetingTime (e.g., "10:00"), voteDeadline (e.g., "19:30 Wednesday"), isActive
+- Added `locationId` foreign key to: votes, attendanceRecords, roomAssignments, presenters
+- Added `leaderId` to roomAssignments for room leader functionality
+- Data migration: Default "신촌 본부" location created and linked to all existing records
+
+**2. Storage Layer (server/storage.ts)**
+- Location CRUD methods: `createLocation()`, `getLocationById()`, `getActiveLocations()`, `updateLocation()`, `deleteLocation()`
+- **KST timezone-safe weekly vote limit**: `checkUserWeeklyVoteLimit()` uses `utcToZonedTime` / `zonedTimeToUtc` from date-fns-tz
+  - Ensures members can only vote at ONE location per week (KST Sunday-Saturday)
+  - Prevents timezone drift regardless of server locale (UTC, PST, KST)
+  - Week boundaries calculated in KST, then converted to UTC for database queries
+- Room leader validation: `isUserRoomLeader()` checks if user is designated leader for a room
+
+**3. API Routes (server/routes.ts)**
+- Location endpoints:
+  - `GET /api/locations` - List all active locations
+  - `POST /api/locations` - Create new location (admin only)
+  - `PATCH /api/locations/:id` - Update location (admin only)
+  - `DELETE /api/locations/:id` - Soft delete location (admin only)
+- Vote creation validates locationId is provided
+- Vote response enforces weekly limit using KST timezone logic
+
+**4. UI Implementation**
+- **Locations Management Page** (client/src/pages/locations-page.tsx):
+  - Admin interface for CRUD operations
+  - Create location form with name, address, meeting time, vote deadline
+  - Edit/delete location actions
+  - Active/inactive status display
+  - Added to sidebar navigation for admins
+
+- **Voting Page Updates** (client/src/pages/voting-page.tsx):
+  - Changed from tabs to **cards layout** for scalability (works with unlimited locations)
+  - Each location displays as separate card with name, address, and associated votes
+  - Loading states for both votes and locations queries
+  - Guard against missing location objects with fallback display
+
+**5. Business Rules**
+- Members select ONE location per week (enforced in KST timezone)
+- Members can switch locations week-to-week (no restriction on location choice)
+- Each location has independent meeting time and vote deadline
+- Room leaders designated per room can manage attendance for their room members
+- All existing penalties, warnings, and financial rules apply across all locations
+
+**6. Technical Highlights**
+- **Timezone Safety**: All week boundary calculations use KST regardless of server timezone
+- **Data Integrity**: locationId validated at API level (schema currently nullable for backward compatibility)
+- **Scalable UI**: Cards layout supports unlimited number of locations without UI breakage
+- **Backward Compatibility**: Existing data migrated to default "신촌 본부" location
+
+**Known Limitations**:
+- locationId foreign keys are nullable in schema (API validation in place)
+- Room leader permissions middleware exists but not fully integrated in UI
+- Future: Add NOT NULL constraints via schema migration after data validation
+
 ## Recent Updates (2025-10-23)
 
 ### Phase 11: Automated Scheduler & Business Rules (COMPLETED)
