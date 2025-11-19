@@ -11,7 +11,7 @@ import {
   type Location, type InsertLocation, type PendingAttendanceRecord, type InsertPendingAttendanceRecord
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, gte, lte, sql, count, isNotNull } from "drizzle-orm";
+import { eq, desc, and, gte, lte, sql, count, isNotNull, inArray } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
@@ -1651,6 +1651,65 @@ export class DatabaseStorage implements IStorage {
         adminNotes: reason,
       })
       .where(eq(pendingAttendanceRecords.id, id));
+  }
+
+  async getRoomAssignmentsByLeader(leaderId: string, date?: Date): Promise<any[]> {
+    let query = db
+      .select({
+        id: roomAssignments.id,
+        roomNumber: roomAssignments.roomNumber,
+        roomName: roomAssignments.roomName,
+        assignedMembers: roomAssignments.assignedMembers,
+        leaderId: roomAssignments.leaderId,
+        meetingDate: roomAssignments.meetingDate,
+        locationId: roomAssignments.locationId,
+        createdDate: roomAssignments.createdDate,
+      })
+      .from(roomAssignments);
+
+    if (date) {
+      const dateStr = date.toISOString().split('T')[0];
+      query = query.where(
+        and(
+          eq(roomAssignments.leaderId, leaderId),
+          sql`DATE(${roomAssignments.meetingDate}) = ${dateStr}`
+        )
+      ) as any;
+    } else {
+      query = query.where(eq(roomAssignments.leaderId, leaderId)) as any;
+    }
+
+    const assignments = await query;
+
+    // Fetch all unique user IDs from assigned members
+    const allUserIds = new Set<string>();
+    assignments.forEach((assignment: any) => {
+      if (assignment.assignedMembers && Array.isArray(assignment.assignedMembers)) {
+        assignment.assignedMembers.forEach((id: string) => allUserIds.add(id));
+      }
+    });
+
+    // Fetch user details for all assigned members (skip if no members)
+    let userDetails: any[] = [];
+    if (allUserIds.size > 0) {
+      userDetails = await db
+        .select({
+          id: users.id,
+          username: users.username,
+          englishName: users.englishName,
+          koreanName: users.koreanName,
+        })
+        .from(users)
+        .where(inArray(users.id, Array.from(allUserIds)));
+    }
+
+    // Attach user details to each assignment
+    return assignments.map((assignment: any) => ({
+      ...assignment,
+      members: assignment.assignedMembers?.map((userId: string) => 
+        userDetails.find(u => u.id === userId)
+      ).filter(Boolean) || [],
+    }));
   }
 }
 

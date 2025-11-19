@@ -384,6 +384,16 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  app.get("/api/room-assignments/my-rooms/:date", requireAuth, async (req, res, next) => {
+    try {
+      const date = new Date(req.params.date);
+      const assignments = await storage.getRoomAssignmentsByLeader(req.user!.id, date);
+      res.json(assignments);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/room-assignments", requireAdmin, async (req, res, next) => {
     try {
       // Convert ISO date string to Date object

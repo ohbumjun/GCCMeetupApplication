@@ -18,18 +18,22 @@ import {
   LogOut,
   Wallet,
   Presentation,
-  MapPin
+  MapPin,
+  UserCheck,
+  ClipboardCheck
 } from "lucide-react";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: Home },
   { name: "Voting", href: "/voting", icon: Vote },
   { name: "Attendance", href: "/attendance", icon: CalendarCheck },
+  { name: "Leader Attendance", href: "/leader-attendance", icon: UserCheck },
+  { name: "Pending Approvals", href: "/pending-attendance", icon: ClipboardCheck, adminOnly: true },
   { name: "Financial", href: "/financial", icon: Wallet },
   { name: "Members", href: "/members", icon: Users },
   { name: "Rankings", href: "/rankings", icon: Trophy },
   { name: "Room Assignment", href: "/room-assignment", icon: DoorOpen },
-  { name: "Locations", href: "/locations", icon: MapPin },
+  { name: "Locations", href: "/locations", icon: MapPin, adminOnly: true },
   { name: "Topics", href: "/topics", icon: MessageSquare },
   { name: "Presenters", href: "/presenters", icon: Presentation },
   { name: "Suggestions", href: "/suggestions", icon: Lightbulb },
@@ -99,8 +103,13 @@ export function Sidebar() {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 p-4 space-y-2">
+          <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
             {navigation.map((item) => {
+              // Hide admin-only items from non-admins
+              if (item.adminOnly && user?.role !== "ADMIN") {
+                return null;
+              }
+              
               const isActive = location === item.href;
               return (
                 <Link key={item.name} href={item.href}>
