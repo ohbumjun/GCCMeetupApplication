@@ -37,7 +37,8 @@ import {
   Plus,
   Eye,
   Clock,
-  MapPin
+  MapPin,
+  Crown
 } from "lucide-react";
 
 interface RoomAssignment {
@@ -46,8 +47,10 @@ interface RoomAssignment {
   roomNumber: string;
   roomName: string;
   assignedMembers: string[];
+  leaderId?: string;
   createdByAdminId?: string;
   createdDate: string;
+  locationId?: string;
 }
 
 interface User {
@@ -431,7 +434,16 @@ export default function RoomAssignmentPage() {
                         <div key={index} className="border rounded-lg p-4">
                           <div className="flex items-center justify-between mb-2">
                             <h4 className="font-semibold">Room {room.roomNumber} - {room.roomName}</h4>
-                            <Badge>Leader: {getUserById(room.leaderId)?.englishName || room.leaderId.slice(0, 8)}</Badge>
+                            <Badge 
+                              variant="default" 
+                              className={room.leaderId ? "bg-yellow-500 hover:bg-yellow-600" : "bg-muted text-muted-foreground"}
+                            >
+                              <Crown className="h-3 w-3 mr-1" />
+                              {room.leaderId 
+                                ? `Leader: ${getUserById(room.leaderId)?.englishName || getUserById(room.leaderId)?.username || room.leaderId?.slice(0, 8) || 'Unknown'}`
+                                : "No leader assigned"
+                              }
+                            </Badge>
                           </div>
                           <div className="flex flex-wrap gap-2">
                             {room.assignedMembers.map((memberId: string) => {
@@ -441,9 +453,10 @@ export default function RoomAssignmentPage() {
                                 <Badge 
                                   key={memberId} 
                                   variant={isLeader ? "default" : "outline"}
+                                  className={isLeader ? "bg-yellow-500 hover:bg-yellow-600" : ""}
                                 >
+                                  {isLeader && <Crown className="h-3 w-3 mr-1" />}
                                   {member ? (member.englishName || member.username) : memberId.slice(0, 8)}
-                                  {isLeader && " (Leader)"}
                                 </Badge>
                               );
                             })}
@@ -596,9 +609,21 @@ export default function RoomAssignmentPage() {
                             <h4 className="font-semibold text-lg">
                               Room {assignment.roomNumber} - {assignment.roomName}
                             </h4>
-                            <Badge variant="secondary">
-                              {assignment.assignedMembers.length} members
-                            </Badge>
+                            <div className="flex items-center gap-2">
+                              <Badge 
+                                variant="default" 
+                                className={assignment.leaderId ? "bg-yellow-500 hover:bg-yellow-600" : "bg-muted text-muted-foreground"}
+                              >
+                                <Crown className="h-3 w-3 mr-1" />
+                                {assignment.leaderId 
+                                  ? `Leader: ${getUserById(assignment.leaderId)?.englishName || getUserById(assignment.leaderId)?.username || 'Unknown'}`
+                                  : "No leader assigned"
+                                }
+                              </Badge>
+                              <Badge variant="secondary">
+                                {assignment.assignedMembers.length} members
+                              </Badge>
+                            </div>
                           </div>
                           <div className="space-y-2">
                             <p className="text-sm text-muted-foreground">
@@ -611,8 +636,14 @@ export default function RoomAssignmentPage() {
                                 <div className="flex flex-wrap gap-2">
                                   {assignment.assignedMembers.map((memberId) => {
                                     const member = getUserById(memberId);
+                                    const isLeader = memberId === assignment.leaderId;
                                     return (
-                                      <Badge key={memberId} variant="outline">
+                                      <Badge 
+                                        key={memberId} 
+                                        variant={isLeader ? "default" : "outline"}
+                                        className={isLeader ? "bg-yellow-500 hover:bg-yellow-600" : ""}
+                                      >
+                                        {isLeader && <Crown className="h-3 w-3 mr-1" />}
                                         {member ? (member.englishName || member.username) : `User ${memberId.slice(0, 8)}`}
                                       </Badge>
                                     );
