@@ -65,6 +65,17 @@ export default function RoomAssignmentPage() {
   const [roomNumber, setRoomNumber] = useState("");
   const [roomName, setRoomName] = useState("");
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  
+  // Auto-assign states
+  const [isAutoAssigning, setIsAutoAssigning] = useState(false);
+  const [autoAssignLocationId, setAutoAssignLocationId] = useState("");
+  const [numberOfRooms, setNumberOfRooms] = useState("3");
+  const [weeksToAvoid, setWeeksToAvoid] = useState("4");
+  const [autoAssignPreview, setAutoAssignPreview] = useState<{
+    meetingDate: string;
+    locationId: string;
+    rooms: any[];
+  } | null>(null);
 
   const isAdmin = user?.role === "ADMIN";
   const dateString = format(selectedDate, "yyyy-MM-dd");
@@ -83,6 +94,12 @@ export default function RoomAssignmentPage() {
   // Fetch all users for assignment
   const { data: allUsers } = useQuery({
     queryKey: ["/api/users"],
+    enabled: isAdmin,
+  });
+
+  // Fetch active locations
+  const { data: activeLocations } = useQuery({
+    queryKey: ["/api/locations/active"],
     enabled: isAdmin,
   });
 
@@ -108,6 +125,68 @@ export default function RoomAssignmentPage() {
       toast({
         title: "Error",
         description: "Failed to create room assignment",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Auto-assign mutation
+  const autoAssignMutation = useMutation({
+    mutationFn: (data: { meetingDate: string; locationId: string; numberOfRooms: number; weeksToAvoid: number }) =>
+      apiRequest("POST", `/api/room-assignments/auto-assign`, data),
+    onSuccess: (result: any) => {
+      setAutoAssignPreview(result);
+      toast({
+        title: "Preview Generated",
+        description: `${result.rooms.length} rooms auto-assigned. Review and confirm to save.`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Auto-Assign Failed",
+        description: error.message || "Failed to auto-assign rooms",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Confirm auto-assign mutation (saves preview to DB using batch endpoint)
+  const confirmAutoAssignMutation = useMutation({
+    mutationFn: async () => {
+      if (!autoAssignPreview) return;
+      
+      return apiRequest("POST", `/api/room-assignments/batch`, {
+        meetingDate: autoAssignPreview.meetingDate,
+        locationId: autoAssignPreview.locationId,
+        rooms: autoAssignPreview.rooms,
+      });
+    },
+    onSuccess: (result: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/room-assignments"] });
+      setIsAutoAssigning(false);
+      setAutoAssignPreview(null);
+      setAutoAssignLocationId("");
+      setNumberOfRooms("3");
+      setWeeksToAvoid("4");
+      
+      if (result.errors && result.errors.length > 0) {
+        toast({
+          title: "Partial Success",
+          description: `${result.created.length} rooms created, ${result.errors.length} failed. Check console for details.`,
+          variant: "warning",
+        });
+        console.error("Failed room assignments:", result.errors);
+      } else {
+        toast({
+          title: "Success",
+          description: `${result.created.length} room assignments saved successfully`,
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to save room assignments",
         variant: "destructive",
       });
     },
@@ -139,6 +218,32 @@ export default function RoomAssignmentPage() {
     );
   };
 
+  const handleAutoAssign = () => {
+    if (!autoAssignLocationId) {
+      toast({
+        title: "Error",
+        description: "Please select a location",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    autoAssignMutation.mutate({
+      meetingDate: selectedDate.toISOString(),
+      locationId: autoAssignLocationId,
+      numberOfRooms: parseInt(numberOfRooms),
+      weeksToAvoid: parseInt(weeksToAvoid),
+    });
+  };
+
+  const handleConfirmAutoAssign = () => {
+    confirmAutoAssignMutation.mutate();
+  };
+
+  const handleCancelAutoAssign = () => {
+    setAutoAssignPreview(null);
+  };
+
   const getUserById = (userId: string) => {
     if (!allUsers || !Array.isArray(allUsers)) return null;
     return (allUsers as User[]).find(u => u.id === userId);
@@ -164,13 +269,14 @@ export default function RoomAssignmentPage() {
         <div className="flex-1 p-4 md:p-6 space-y-6 overflow-auto">
           <div className="flex items-center justify-between">
             {isAdmin && (
-              <Dialog open={isCreatingAssignment} onOpenChange={setIsCreatingAssignment}>
-                <DialogTrigger asChild>
-                  <Button data-testid="button-create-assignment">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Room Assignment
-                  </Button>
-                </DialogTrigger>
+              <div className="flex gap-2 flex-wrap">
+                <Dialog open={isCreatingAssignment} onOpenChange={setIsCreatingAssignment}>
+                  <DialogTrigger asChild>
+                    <Button data-testid="button-create-assignment">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Create Room Assignment
+                    </Button>
+                  </DialogTrigger>
                 <DialogContent className="sm:max-w-lg">
                   <DialogHeader>
                     <DialogTitle>Create Room Assignment</DialogTitle>
@@ -230,7 +336,7 @@ export default function RoomAssignmentPage() {
                               {user.englishName || user.username} ({user.username})
                             </span>
                           </div>
-                        )) as React.ReactNode}
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -252,6 +358,141 @@ export default function RoomAssignmentPage() {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
+
+              <Dialog open={isAutoAssigning} onOpenChange={setIsAutoAssigning}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" data-testid="button-auto-assign">
+                    <Users className="h-4 w-4 mr-2" />
+                    Auto-Assign Rooms
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Auto-Assign Rooms</DialogTitle>
+                    <DialogDescription>
+                      Automatically assign members to rooms based on voting and history
+                    </DialogDescription>
+                  </DialogHeader>
+                  
+                  {!autoAssignPreview ? (
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="location">Location</Label>
+                        <Select value={autoAssignLocationId} onValueChange={setAutoAssignLocationId}>
+                          <SelectTrigger id="location" data-testid="select-location">
+                            <SelectValue placeholder="Select location" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {activeLocations && Array.isArray(activeLocations) && activeLocations.map((loc: any) => (
+                              <SelectItem key={loc.id} value={loc.id}>
+                                {loc.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="numberOfRooms">Number of Rooms</Label>
+                          <Input
+                            id="numberOfRooms"
+                            type="number"
+                            min="1"
+                            max="20"
+                            value={numberOfRooms}
+                            onChange={(e) => setNumberOfRooms(e.target.value)}
+                            data-testid="input-number-of-rooms"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="weeksToAvoid">Weeks to Avoid (Pairing History)</Label>
+                          <Input
+                            id="weeksToAvoid"
+                            type="number"
+                            min="0"
+                            max="12"
+                            value={weeksToAvoid}
+                            onChange={(e) => setWeeksToAvoid(e.target.value)}
+                            data-testid="input-weeks-to-avoid"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4 max-h-96 overflow-y-auto">
+                      <div className="bg-green-50 border border-green-200 rounded-md p-3">
+                        <p className="text-sm text-green-800">
+                          Preview: {autoAssignPreview.rooms.length} rooms generated. Review and confirm to save.
+                        </p>
+                      </div>
+                      
+                      {autoAssignPreview.rooms.map((room: any, index: number) => (
+                        <div key={index} className="border rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="font-semibold">Room {room.roomNumber} - {room.roomName}</h4>
+                            <Badge>Leader: {getUserById(room.leaderId)?.englishName || room.leaderId.slice(0, 8)}</Badge>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {room.assignedMembers.map((memberId: string) => {
+                              const member = getUserById(memberId);
+                              const isLeader = memberId === room.leaderId;
+                              return (
+                                <Badge 
+                                  key={memberId} 
+                                  variant={isLeader ? "default" : "outline"}
+                                >
+                                  {member ? (member.englishName || member.username) : memberId.slice(0, 8)}
+                                  {isLeader && " (Leader)"}
+                                </Badge>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <DialogFooter>
+                    {!autoAssignPreview ? (
+                      <>
+                        <Button
+                          variant="outline"
+                          onClick={() => setIsAutoAssigning(false)}
+                          data-testid="button-cancel-auto-assign"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={handleAutoAssign}
+                          disabled={autoAssignMutation.isPending}
+                          data-testid="button-generate-preview"
+                        >
+                          {autoAssignMutation.isPending ? "Generating..." : "Generate Preview"}
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          variant="outline"
+                          onClick={handleCancelAutoAssign}
+                          data-testid="button-cancel-preview"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={handleConfirmAutoAssign}
+                          disabled={confirmAutoAssignMutation.isPending}
+                          data-testid="button-confirm-auto-assign"
+                        >
+                          {confirmAutoAssignMutation.isPending ? "Saving..." : "Confirm & Save"}
+                        </Button>
+                      </>
+                    )}
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+              </div>
             )}
           </div>
 

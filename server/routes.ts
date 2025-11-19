@@ -437,7 +437,60 @@ export function registerRoutes(app: Express): Server {
         weeksToAvoid: parsedWeeksToAvoid,
       });
       
-      res.json(result);
+      // Include meetingDate in response for client to use in confirmation
+      res.json({
+        meetingDate: parsedDate.toISOString(),
+        locationId,
+        rooms: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/room-assignments/batch", requireAdmin, async (req, res, next) => {
+    try {
+      const { meetingDate, locationId, rooms } = req.body;
+      
+      if (!meetingDate || !locationId || !Array.isArray(rooms)) {
+        return res.status(400).json({ message: "meetingDate, locationId, and rooms array are required" });
+      }
+      
+      const createdAssignments = [];
+      const errors = [];
+      
+      for (const room of rooms) {
+        try {
+          const assignment = await storage.createRoomAssignment({
+            meetingDate: new Date(meetingDate),
+            roomNumber: room.roomNumber,
+            roomName: room.roomName,
+            assignedMembers: room.assignedMembers,
+            locationId: locationId,
+            leaderId: room.leaderId,
+            createdByAdminId: req.user!.id,
+          });
+          createdAssignments.push(assignment);
+        } catch (error: any) {
+          errors.push({
+            room: room.roomNumber,
+            error: error.message || "Failed to create assignment",
+          });
+        }
+      }
+      
+      if (errors.length > 0) {
+        return res.status(207).json({
+          message: `${createdAssignments.length} rooms created, ${errors.length} failed`,
+          created: createdAssignments,
+          errors,
+        });
+      }
+      
+      res.status(201).json({
+        message: `${createdAssignments.length} rooms created successfully`,
+        created: createdAssignments,
+      });
     } catch (error) {
       next(error);
     }
