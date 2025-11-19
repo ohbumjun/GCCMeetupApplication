@@ -84,6 +84,7 @@ export const votes = pgTable("votes", {
   meetingDate: timestamp("meeting_date").notNull(),
   deadlineDate: timestamp("deadline_date").notNull(),
   createdByAdminId: varchar("created_by_admin_id").references(() => users.id),
+  locationId: varchar("location_id").references(() => locations.id),
   status: voteStatusEnum("status").default("ACTIVE"),
   createdDate: timestamp("created_date").defaultNow(),
 });
@@ -104,6 +105,7 @@ export const attendanceRecords = pgTable("attendance_records", {
   status: attendanceStatusEnum("status").notNull(),
   arrivalTime: timestamp("arrival_time"),
   updatedByAdminId: varchar("updated_by_admin_id").references(() => users.id),
+  locationId: varchar("location_id").references(() => locations.id),
   notes: text("notes"),
   createdDate: timestamp("created_date").defaultNow(),
 });
@@ -114,6 +116,8 @@ export const roomAssignments = pgTable("room_assignments", {
   roomNumber: text("room_number").notNull(),
   roomName: text("room_name").notNull(),
   assignedMembers: json("assigned_members").$type<string[]>().default([]),
+  leaderId: varchar("leader_id").references(() => users.id),
+  locationId: varchar("location_id").references(() => locations.id),
   createdByAdminId: varchar("created_by_admin_id").references(() => users.id),
   createdDate: timestamp("created_date").defaultNow(),
 });
@@ -186,7 +190,20 @@ export const presenters = pgTable("presenters", {
   penaltyApplied: boolean("penalty_applied").default(false),
   penaltyAmount: decimal("penalty_amount", { precision: 10, scale: 2 }).default("0.00"),
   assignedByAdminId: varchar("assigned_by_admin_id").references(() => users.id),
+  locationId: varchar("location_id").references(() => locations.id),
   createdDate: timestamp("created_date").defaultNow(),
+});
+
+export const locations = pgTable("locations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  address: text("address"),
+  timezone: text("timezone").default("Asia/Seoul"),
+  defaultMeetingDay: integer("default_meeting_day"),
+  defaultMeetingTime: text("default_meeting_time"),
+  isActive: boolean("is_active").default(true),
+  createdDate: timestamp("created_date").defaultNow(),
+  updatedDate: timestamp("updated_date").defaultNow(),
 });
 
 // Relations
@@ -208,6 +225,10 @@ export const votesRelations = relations(votes, ({ one, many }) => ({
   createdByAdmin: one(users, {
     fields: [votes.createdByAdminId],
     references: [users.id],
+  }),
+  location: one(locations, {
+    fields: [votes.locationId],
+    references: [locations.id],
   }),
   responses: many(voteResponses),
 }));
@@ -232,12 +253,24 @@ export const attendanceRecordsRelations = relations(attendanceRecords, ({ one })
     fields: [attendanceRecords.updatedByAdminId],
     references: [users.id],
   }),
+  location: one(locations, {
+    fields: [attendanceRecords.locationId],
+    references: [locations.id],
+  }),
 }));
 
 export const roomAssignmentsRelations = relations(roomAssignments, ({ one }) => ({
   createdByAdmin: one(users, {
     fields: [roomAssignments.createdByAdminId],
     references: [users.id],
+  }),
+  leader: one(users, {
+    fields: [roomAssignments.leaderId],
+    references: [users.id],
+  }),
+  location: one(locations, {
+    fields: [roomAssignments.locationId],
+    references: [locations.id],
   }),
 }));
 
@@ -306,6 +339,17 @@ export const presentersRelations = relations(presenters, ({ one }) => ({
     fields: [presenters.assignedByAdminId],
     references: [users.id],
   }),
+  location: one(locations, {
+    fields: [presenters.locationId],
+    references: [locations.id],
+  }),
+}));
+
+export const locationsRelations = relations(locations, ({ many }) => ({
+  votes: many(votes),
+  attendanceRecords: many(attendanceRecords),
+  roomAssignments: many(roomAssignments),
+  presenters: many(presenters),
 }));
 
 // Insert schemas
@@ -369,6 +413,12 @@ export const insertPresenterSchema = createInsertSchema(presenters).omit({
   materialSubmittedDate: true,
 });
 
+export const insertLocationSchema = createInsertSchema(locations).omit({
+  id: true,
+  createdDate: true,
+  updatedDate: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -392,3 +442,5 @@ export type Warning = typeof warnings.$inferSelect;
 export type InsertWarning = z.infer<typeof insertWarningSchema>;
 export type Presenter = typeof presenters.$inferSelect;
 export type InsertPresenter = z.infer<typeof insertPresenterSchema>;
+export type Location = typeof locations.$inferSelect;
+export type InsertLocation = z.infer<typeof insertLocationSchema>;
