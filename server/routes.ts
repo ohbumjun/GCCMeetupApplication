@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth, hashPassword } from "./auth";
 import { storage } from "./storage";
-import { insertVoteSchema, insertVoteResponseSchema, insertAttendanceRecordSchema, insertRoomAssignmentSchema, insertMeetingTopicSchema, insertSuggestionSchema, insertPresenterSchema } from "@shared/schema";
+import { insertVoteSchema, insertVoteResponseSchema, insertAttendanceRecordSchema, insertRoomAssignmentSchema, insertMeetingTopicSchema, insertSuggestionSchema, insertPresenterSchema, insertLocationSchema } from "@shared/schema";
 import { z } from "zod";
 
 export function registerRoutes(app: Express): Server {
@@ -46,6 +46,27 @@ export function registerRoutes(app: Express): Server {
       return res.status(403).json({ message: "Admin access required" });
     }
     next();
+  };
+
+  // Middleware to check if user is room leader or admin
+  const requireLeaderOrAdmin = async (req: any, res: any, next: any) => {
+    if (!req.isAuthenticated() || !req.user) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    if (req.user.role === "ADMIN") {
+      return next();
+    }
+
+    const roomAssignmentId = req.body.roomAssignmentId || req.params.roomAssignmentId;
+    if (roomAssignmentId) {
+      const isLeader = await storage.isUserRoomLeader(req.user.id, roomAssignmentId);
+      if (isLeader) {
+        return next();
+      }
+    }
+
+    return res.status(403).json({ message: "Room leader or admin access required" });
   };
 
   // Dashboard stats
@@ -148,6 +169,10 @@ export function registerRoutes(app: Express): Server {
 
   app.post("/api/votes", requireAdmin, async (req, res, next) => {
     try {
+      if (!req.body.locationId) {
+        return res.status(400).json({ message: "Location ID is required for creating votes" });
+      }
+
       // Convert ISO date strings to Date objects
       const processedBody = {
         ...req.body,
@@ -187,6 +212,13 @@ export function registerRoutes(app: Express): Server {
       if (existingResponse) {
         const updated = await storage.updateVoteResponse(voteId, userId, req.body.response);
         return res.json(updated);
+      }
+      
+      const canVote = await storage.checkUserWeeklyVoteLimit(userId, voteId);
+      if (!canVote) {
+        return res.status(400).json({ 
+          message: "You can only vote for one location per week" 
+        });
       }
       
       const responseData = insertVoteResponseSchema.parse({
@@ -725,6 +757,66 @@ export function registerRoutes(app: Express): Server {
       
       await storage.applyPresenterPenalty(id, amount, req.user!.id);
       res.json({ message: "Penalty applied successfully" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Location management
+  app.get("/api/locations", requireAuth, async (req, res, next) => {
+    try {
+      const locations = await storage.getAllLocations();
+      res.json(locations);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/locations/active", requireAuth, async (req, res, next) => {
+    try {
+      const locations = await storage.getActiveLocations();
+      res.json(locations);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/locations/:id", requireAuth, async (req, res, next) => {
+    try {
+      const location = await storage.getLocationById(req.params.id);
+      if (!location) {
+        return res.status(404).json({ message: "Location not found" });
+      }
+      res.json(location);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/locations", requireAdmin, async (req, res, next) => {
+    try {
+      const locationData = insertLocationSchema.parse(req.body);
+      const location = await storage.createLocation(locationData);
+      res.status(201).json(location);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put("/api/locations/:id", requireAdmin, async (req, res, next) => {
+    try {
+      const updates = insertLocationSchema.partial().parse(req.body);
+      const location = await storage.updateLocation(req.params.id, updates);
+      res.json(location);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/locations/:id", requireAdmin, async (req, res, next) => {
+    try {
+      await storage.deleteLocation(req.params.id);
+      res.json({ message: "Location deactivated successfully" });
     } catch (error) {
       next(error);
     }

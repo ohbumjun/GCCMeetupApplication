@@ -4,10 +4,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Clock, Users, CheckCircle, XCircle } from "lucide-react";
+import { Clock, Users, CheckCircle, XCircle, MapPin } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function VotingPage() {
@@ -20,6 +21,10 @@ export default function VotingPage() {
 
   const { data: voteHistory, isLoading: isHistoryLoading } = useQuery({
     queryKey: ["/api/votes/history"],
+  });
+
+  const { data: locations, isLoading: isLocationsLoading } = useQuery({
+    queryKey: ["/api/locations"],
   });
 
   const voteResponseMutation = useMutation({
@@ -49,6 +54,19 @@ export default function VotingPage() {
   const activeVotes = (votes || []).filter((vote: any) => vote.status === "ACTIVE");
   const closedVotes = (voteHistory || []).filter((vote: any) => vote.status === "CLOSED");
 
+  const votesByLocation = activeVotes.reduce((acc: any, vote: any) => {
+    const locationId = vote.locationId || "unknown";
+    if (!acc[locationId]) {
+      acc[locationId] = [];
+    }
+    acc[locationId].push(vote);
+    return acc;
+  }, {});
+
+  const activeLocations = locations?.filter((loc: any) => 
+    votesByLocation[loc.id]?.length > 0
+  ) || [];
+
   return (
     <div className="min-h-screen flex bg-background">
       <Sidebar />
@@ -57,10 +75,10 @@ export default function VotingPage() {
         <Header title="Voting" subtitle="Participate in weekly meetup votes and view your voting history." />
         
         <div className="flex-1 p-4 md:p-6 space-y-6 overflow-auto">
-          {/* Active Votes */}
+          {/* Active Votes by Location */}
           <div className="space-y-4">
             <h2 className="text-xl font-semibold text-foreground">Active Votes</h2>
-            {isVotesLoading ? (
+            {isVotesLoading || isLocationsLoading ? (
               <Card>
                 <CardContent className="p-6">
                   <div className="animate-pulse space-y-4">
@@ -75,15 +93,49 @@ export default function VotingPage() {
                   <p className="text-muted-foreground">No active votes at the moment.</p>
                 </CardContent>
               </Card>
+            ) : activeLocations.length > 1 ? (
+              <div className="space-y-4">
+                {activeLocations.map((location: any) => (
+                  <Card key={location.id}>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <MapPin className="w-5 h-5" />
+                        {location.name}
+                      </CardTitle>
+                      <CardDescription className="flex items-center gap-1">
+                        <MapPin className="w-3 h-3" />
+                        {location.address || 'No address available'}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {votesByLocation[location.id]?.map((vote: any) => (
+                        <VoteCard 
+                          key={vote.id} 
+                          vote={vote}
+                          location={location}
+                          onVote={handleVote}
+                          isPending={voteResponseMutation.isPending}
+                        />
+                      ))}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             ) : (
-              activeVotes.map((vote: any) => (
-                <VoteCard 
-                  key={vote.id} 
-                  vote={vote} 
-                  onVote={handleVote}
-                  isPending={voteResponseMutation.isPending}
-                />
-              ))
+              <div className="space-y-4">
+                {activeVotes.map((vote: any) => {
+                  const location = locations?.find((loc: any) => loc.id === vote.locationId);
+                  return (
+                    <VoteCard 
+                      key={vote.id} 
+                      vote={vote}
+                      location={location}
+                      onVote={handleVote}
+                      isPending={voteResponseMutation.isPending}
+                    />
+                  );
+                })}
+              </div>
             )}
           </div>
 
@@ -111,9 +163,12 @@ export default function VotingPage() {
               </Card>
             ) : (
               <div className="space-y-4">
-                {closedVotes.map((vote: any) => (
-                  <HistoryVoteCard key={vote.id} vote={vote} />
-                ))}
+                {closedVotes.map((vote: any) => {
+                  const location = locations?.find((loc: any) => loc.id === vote.locationId);
+                  return (
+                    <HistoryVoteCard key={vote.id} vote={vote} location={location} />
+                  );
+                })}
               </div>
             )}
           </div>
@@ -123,7 +178,7 @@ export default function VotingPage() {
   );
 }
 
-function VoteCard({ vote, onVote, isPending }: { vote: any; onVote: (voteId: string, response: "PRESENT" | "ABSENT") => void; isPending: boolean }) {
+function VoteCard({ vote, location, onVote, isPending }: { vote: any; location?: any; onVote: (voteId: string, response: "PRESENT" | "ABSENT") => void; isPending: boolean }) {
   const { data: responses } = useQuery({
     queryKey: ["/api/votes", vote.id, "responses"],
   });
@@ -143,7 +198,15 @@ function VoteCard({ vote, onVote, isPending }: { vote: any; onVote: (voteId: str
     <Card data-testid={`vote-card-${vote.id}`}>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg">{vote.title}</CardTitle>
+          <div>
+            <CardTitle className="text-lg">{vote.title}</CardTitle>
+            {location && (
+              <div className="flex items-center gap-1 mt-1 text-sm text-muted-foreground">
+                <MapPin className="w-3 h-3" />
+                <span>{location.name}</span>
+              </div>
+            )}
+          </div>
           <Badge variant={isExpired ? "secondary" : "default"}>
             {isExpired ? "Expired" : "Active"}
           </Badge>
@@ -221,7 +284,7 @@ function VoteCard({ vote, onVote, isPending }: { vote: any; onVote: (voteId: str
   );
 }
 
-function HistoryVoteCard({ vote }: { vote: any }) {
+function HistoryVoteCard({ vote, location }: { vote: any; location?: any }) {
   const { data: responses } = useQuery({
     queryKey: ["/api/votes", vote.id, "responses"],
   });
@@ -235,7 +298,15 @@ function HistoryVoteCard({ vote }: { vote: any }) {
     <Card data-testid={`history-vote-card-${vote.id}`}>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base">{vote.title}</CardTitle>
+          <div>
+            <CardTitle className="text-base">{vote.title}</CardTitle>
+            {location && (
+              <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
+                <MapPin className="w-3 h-3" />
+                <span>{location.name}</span>
+              </div>
+            )}
+          </div>
           <Badge variant="secondary">Closed</Badge>
         </div>
         <CardDescription>{vote.description}</CardDescription>

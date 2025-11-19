@@ -1,20 +1,21 @@
 import { 
   users, votes, voteResponses, attendanceRecords, roomAssignments, 
-  meetingTopics, suggestions, financialAccounts, financialTransactions, warnings, presenters,
+  meetingTopics, suggestions, financialAccounts, financialTransactions, warnings, presenters, locations,
   type User, type InsertUser, type Vote, type InsertVote,
   type VoteResponse, type InsertVoteResponse, type AttendanceRecord,
   type InsertAttendanceRecord, type RoomAssignment, type InsertRoomAssignment,
   type MeetingTopic, type InsertMeetingTopic, type Suggestion, type InsertSuggestion,
   type FinancialAccount, type InsertFinancialAccount, type FinancialTransaction,
-  type InsertFinancialTransaction, type Warning, type InsertWarning, type Presenter, type InsertPresenter
+  type InsertFinancialTransaction, type Warning, type InsertWarning, type Presenter, type InsertPresenter,
+  type Location, type InsertLocation
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, gte, lte, sql, count, isNotNull } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
-import { toZonedTime, fromZonedTime } from 'date-fns-tz';
-import { addDays, setHours, setMinutes, setSeconds, setMilliseconds } from 'date-fns';
+import { toZonedTime, fromZonedTime, utcToZonedTime, zonedTimeToUtc } from 'date-fns-tz';
+import { addDays, setHours, setMinutes, setSeconds, setMilliseconds, startOfWeek, endOfWeek } from 'date-fns';
 
 const PostgresSessionStore = connectPg(session);
 
@@ -107,6 +108,18 @@ export interface IStorage {
   checkPresenterDeadlines(): Promise<void>;
   getUpcomingPresenters(): Promise<Presenter[]>;
   applyPresenterPenalty(presenterId: string, amount: number, processedByAdminId: string): Promise<void>;
+
+  // Location methods
+  createLocation(location: InsertLocation): Promise<Location>;
+  getAllLocations(): Promise<Location[]>;
+  getActiveLocations(): Promise<Location[]>;
+  getLocationById(id: string): Promise<Location | undefined>;
+  updateLocation(id: string, updates: Partial<InsertLocation>): Promise<Location>;
+  deleteLocation(id: string): Promise<void>;
+
+  // Multi-location business logic
+  checkUserWeeklyVoteLimit(userId: string, voteId: string): Promise<boolean>;
+  isUserRoomLeader(userId: string, roomAssignmentId: string): Promise<boolean>;
 
   sessionStore: any;
 }
@@ -1198,6 +1211,105 @@ export class DatabaseStorage implements IStorage {
 
     console.log(`[Presenter Deadline] Total ${results.length} late presenters penalized`);
     return results;
+  }
+
+  async createLocation(location: InsertLocation): Promise<Location> {
+    const [newLocation] = await db
+      .insert(locations)
+      .values(location)
+      .returning();
+    return newLocation;
+  }
+
+  async getAllLocations(): Promise<Location[]> {
+    return await db
+      .select()
+      .from(locations)
+      .orderBy(desc(locations.createdDate));
+  }
+
+  async getActiveLocations(): Promise<Location[]> {
+    return await db
+      .select()
+      .from(locations)
+      .where(eq(locations.isActive, true))
+      .orderBy(locations.name);
+  }
+
+  async getLocationById(id: string): Promise<Location | undefined> {
+    const [location] = await db
+      .select()
+      .from(locations)
+      .where(eq(locations.id, id));
+    return location;
+  }
+
+  async updateLocation(id: string, updates: Partial<InsertLocation>): Promise<Location> {
+    const [updated] = await db
+      .update(locations)
+      .set({ ...updates, updatedDate: new Date() })
+      .where(eq(locations.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteLocation(id: string): Promise<void> {
+    await db
+      .update(locations)
+      .set({ isActive: false, updatedDate: new Date() })
+      .where(eq(locations.id, id));
+  }
+
+  async checkUserWeeklyVoteLimit(userId: string, voteId: string): Promise<boolean> {
+    const vote = await this.getVoteById(voteId);
+    if (!vote) {
+      throw new Error("Vote not found");
+    }
+
+    const SEOUL_TZ = 'Asia/Seoul';
+    const meetingDateUTC = new Date(vote.meetingDate);
+    const meetingDateKST = utcToZonedTime(meetingDateUTC, SEOUL_TZ);
+    const weekStartKST = startOfWeek(meetingDateKST, { weekStartsOn: 0 });
+    const weekEndKST = endOfWeek(meetingDateKST, { weekStartsOn: 0 });
+    const weekStartUTC = zonedTimeToUtc(weekStartKST, SEOUL_TZ);
+    const weekEndUTC = zonedTimeToUtc(weekEndKST, SEOUL_TZ);
+
+    const userVotesThisWeek = await db
+      .select({
+        voteId: voteResponses.voteId,
+        voteLocationId: votes.locationId,
+      })
+      .from(voteResponses)
+      .innerJoin(votes, eq(voteResponses.voteId, votes.id))
+      .where(and(
+        eq(voteResponses.userId, userId),
+        gte(votes.meetingDate, weekStartUTC),
+        lte(votes.meetingDate, weekEndUTC),
+        isNotNull(votes.locationId)
+      ));
+
+    if (userVotesThisWeek.length === 0) {
+      return true;
+    }
+
+    const hasVotedDifferentLocation = userVotesThisWeek.some(
+      v => v.voteLocationId !== vote.locationId
+    );
+
+    return !hasVotedDifferentLocation;
+  }
+
+  async isUserRoomLeader(userId: string, roomAssignmentId: string): Promise<boolean> {
+    const [assignment] = await db
+      .select()
+      .from(roomAssignments)
+      .where(eq(roomAssignments.id, roomAssignmentId));
+    
+    if (!assignment) {
+      return false;
+    }
+
+    return assignment.leaderId === userId;
   }
 }
 

@@ -18,6 +18,7 @@ import SuggestionsPage from "@/pages/suggestions-page";
 import ProfilePage from "@/pages/profile-page";
 import FinancialPage from "@/pages/financial-page";
 import PresentersPage from "@/pages/presenters-page";
+import LocationsPage from "@/pages/locations-page";
 
 function Router() {
   return (
@@ -32,6 +33,7 @@ function Router() {
       <ProtectedRoute path="/suggestions" component={SuggestionsPage} />
       <ProtectedRoute path="/financial" component={FinancialPage} />
       <ProtectedRoute path="/presenters" component={PresentersPage} />
+      <ProtectedRoute path="/locations" component={LocationsPage} />
       <ProtectedRoute path="/profile" component={ProfilePage} />
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
